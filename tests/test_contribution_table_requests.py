@@ -397,8 +397,9 @@ def test_generate_puzzle_tab_formats_tab():
     asyncio.run(cog.generate_puzzle_tab(p, is_target=False))
     reqs = [r for body in calls for r in body["requests"]]
 
-    frozen = [r["updateSheetProperties"] for r in reqs if "updateSheetProperties" in r]
-    assert frozen and frozen[0]["properties"]["gridProperties"]["frozenRowCount"] == 3
+    # The full header is no longer frozen on new tabs (user, 2026-11-21): no
+    # request may set a frozen row count at all.
+    assert "frozenRowCount" not in str(reqs)
 
     fonts = [r["repeatCell"] for r in reqs if "repeatCell" in r
              and "textFormat" in r["repeatCell"]["cell"]["userEnteredFormat"]]

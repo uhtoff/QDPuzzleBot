@@ -147,7 +147,10 @@ def test_compact_target_has_header_in_b_and_table_in_the_same_batch():
     reqs = _reqs(calls)
     assert _cell_at(reqs, 0, 1) == _title("Meta", "https://h/alpha", (0, 1))
     add = next(r["addTable"]["table"] for r in reqs if "addTable" in r)
-    assert add["range"]["startRowIndex"] == 3
+    # Row 5, not row 4: a blank spacer row under the header takes the Table's
+    # toolbar pill, which otherwise covers the links line (B3).
+    assert add["range"]["startRowIndex"] == 4
+    assert add["range"]["endRowIndex"] == 5
     hide = [r for r in reqs if "updateDimensionProperties" in r
             and r["updateDimensionProperties"]["properties"].get("hiddenByUser")]
     assert len(hide) == 1
@@ -679,7 +682,8 @@ def test_compact_promote_is_one_atomic_batch_moving_only_the_three_cells():
                for w in widths)
     assert cut["source"] == _rng(0, 3, 4, 5)
     assert cut["destination"] == {"sheetId": P, "rowIndex": 0, "columnIndex": 1}
-    assert reqs[_index(reqs, "addTable")]["addTable"]["table"]["range"]["startRowIndex"] == 3
+    # Promote leaves the same spacer row as a freshly made compact target.
+    assert reqs[_index(reqs, "addTable")]["addTable"]["table"]["range"]["startRowIndex"] == 4
     assert not any("unmergeCells" in r for r in reqs)
     assert not any("updateCells" in r and "rows" not in r["updateCells"] for r in reqs)
     cog._values_get.assert_not_awaited()

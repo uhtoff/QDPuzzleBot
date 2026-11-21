@@ -232,7 +232,9 @@ class GoogleSheets(commands.Cog):
             status_a1=config.puzzle_cell_solution,
             progress_a1=config.puzzle_cell_progress,
             feeds_a1=sheet_layout.FEEDS_LINKS_A1,
-            frozen_rows=sheet_layout.FROZEN_ROWS,
+            # Not frozen (user, 2026-11-21), like the compact header: tabs made
+            # from here on scroll their header away. Tabs frozen earlier stay so.
+            frozen_rows=0,
             band_rows=sheet_layout.FROZEN_ROWS,
             band_cols=self.HEADER_LAST_COL,
             grey_whole_rows=True)
@@ -248,8 +250,8 @@ class GoogleSheets(commands.Cog):
 
     def _tab_format_requests(self, page_id, label_col, geom=None):
         """Formatting a code-generated tab needs but a blank addSheet lacks: the
-        whole tab in JetBrains Mono, the 3 header rows frozen + grey, and the label
-        column widened. (The old duplicateSheet template carried these.)"""
+        whole tab in JetBrains Mono, the header rows grey (frozen only if the
+        geometry asks, which no layout does now), and the label column widened. (The old duplicateSheet template carried these.)"""
         geom = geom or self._full_geometry()
         grey_range = {"sheetId": page_id, "startRowIndex": 0,
                       "endRowIndex": geom.band_rows}
@@ -2153,7 +2155,7 @@ class GoogleSheets(commands.Cog):
         compact_target = is_target \
             and self._header_geometry(puzzle, page_id).layout == HEADER_COMPACT
         if compact_target:
-            requests += self._contribution_table_requests(page_id, sheet_layout.FROZEN_ROWS)
+            requests += self._contribution_table_requests(page_id, sheet_layout.COMPACT_TABLE_ROW)
             requests.append(self._hide_key_column_request(page_id))
         requests += extra_requests or []
         if requests:
@@ -2269,7 +2271,7 @@ class GoogleSheets(commands.Cog):
         if header_links is not None:
             reqs.append(self.header_links_request(
                 page_id, shift, header_links, sheet_layout.COMPACT_GEOMETRY))
-        reqs += self._contribution_table_requests(page_id, sheet_layout.FROZEN_ROWS)
+        reqs += self._contribution_table_requests(page_id, sheet_layout.COMPACT_TABLE_ROW)
         reqs.append(self._hide_key_column_request(page_id))
         await self.batch_update({"requests": reqs}, spreadsheet_id=spreadsheet_id)
 

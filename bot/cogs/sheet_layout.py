@@ -44,18 +44,30 @@ class HeaderGeometry:
     status_a1: Any         # solution/status cell (full: config.puzzle_cell_solution)
     progress_a1: Any       # full: config.puzzle_cell_progress; compact: None
     feeds_a1: str | None   # full: FEEDS_LINKS_A1; compact main: "A3"; compact extra: None
-    frozen_rows: int       # full: FROZEN_ROWS; compact: 0
+    frozen_rows: int       # rows to freeze: 0 in every layout now (full froze 3 until 2026-11-21)
     band_rows: int         # rows the header occupies (grey/border): full FROZEN_ROWS
     band_cols: int         # columns bordered from the header column: full 17
     grey_whole_rows: bool  # full: True (grey spans the whole rows); compact: False
 
 
+# The full header's height, and the row its roll-up Table is anchored below.
+# The name is historical: these rows are no longer frozen on new tabs.
 FROZEN_ROWS = 3
 
 # Compact layout: title / status / feeds in A1:A3 of the header column, no labels,
 # merges or frozen rows. An additional sheet has no feeds line, so its band is A1:A2.
 COMPACT_GEOMETRY = HeaderGeometry("compact", "A1", "A2", None, "A3", 0, 3, 1, False)
 COMPACT_EXTRA_GEOMETRY = dataclasses.replace(COMPACT_GEOMETRY, feeds_a1=None, band_rows=2)
+
+# 0-based grid row of a compact target's roll-up Table header: row 5, leaving
+# row 4 blank under the three header cells. Sheets draws a Table's toolbar pill
+# over the row above the Table, which hid the header's links line (A3 / B3).
+# The spacer row takes the pill instead.
+# Only where the bot CREATES a Table: tabs made before this keep theirs at row
+# 4, and everything that later reads or writes a Table takes its position from
+# the sheet. (The full header keeps its Table at row 4 = FROZEN_ROWS with no
+# spacer: there the pill only covers the unused "Progress Summary:" label.)
+COMPACT_TABLE_ROW = 4
 
 # Static header labels shared by every puzzle tab.
 PUZZLE_TAB_CELLS = [
