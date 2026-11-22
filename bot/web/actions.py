@@ -861,7 +861,7 @@ async def create_hunt():
     extra = set(body.keys()) - _CREATE_HUNT_REQUIRED - _CREATE_HUNT_OPTIONAL
     if extra:
         return jsonify({"error": "bad_keys", "unknown": sorted(extra)}), 400
-    if body.get("sheet_mode", "tabs") not in ("tabs", "files"):
+    if body.get("sheet_mode", "files") not in ("tabs", "files"):
         return jsonify({"error": "bad_sheet_mode"}), 400
     if "voice_per_puzzle" in body and not isinstance(body["voice_per_puzzle"], bool):
         return jsonify({"error": "bad_value", "field": "voice_per_puzzle"}), 400
@@ -2224,7 +2224,7 @@ async def post_guild_setup(guild_id):
     for key in ("create_solved_sheet", "send_invites", "multi_team"):
         if not isinstance(body.get(key, False), bool):
             return jsonify({"error": "bad_value", "field": key}), 400
-    sheet_mode = body.get("sheet_mode", "tabs")
+    sheet_mode = body.get("sheet_mode", "files")
     if sheet_mode not in ("tabs", "files"):
         return jsonify({"error": "bad_sheet_mode"}), 400
     if sheet_mode == "files" and body.get("create_solved_sheet", False):

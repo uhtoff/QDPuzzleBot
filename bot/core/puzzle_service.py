@@ -4236,7 +4236,7 @@ class PuzzleService:
                           role_name=None, username=None, password=None,
                           create_solved_sheet=False,
                           guild_id=0, creator=None, confirm_existing_role=False,
-                          sheet_mode="tabs", voice_per_puzzle=None,
+                          sheet_mode="files", voice_per_puzzle=None,
                           header_style=DEFAULT_HEADER_STYLE):
         """Create a hunt: Discord category/channels + Google Sheet + DB row.
 
@@ -4244,9 +4244,9 @@ class PuzzleService:
         new puzzle" setting; None (default) takes the server's default
         (guilds.discord_use_voice_channels).
 
-        ``sheet_mode`` "tabs" (default) keeps one spreadsheet with a tab per puzzle;
-        "files" makes a Drive folder (+ Solved subfolder) holding a reference
-        spreadsheet, one spreadsheet per puzzle going in the folder.
+        ``sheet_mode`` "files" (default) makes a Drive folder (+ Solved subfolder)
+        holding a reference spreadsheet, one spreadsheet per puzzle going in the
+        folder; "tabs" keeps one spreadsheet with a tab per puzzle.
 
         ``header_style`` "compact" (default) or "full" is the puzzle-sheet header
         that puzzles created in this hunt get (see _header_layout_for).

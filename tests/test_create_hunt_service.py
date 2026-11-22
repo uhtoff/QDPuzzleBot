@@ -115,7 +115,8 @@ async def test_create_hunt_captures_sheet_and_role():
          patch.object(svc, "_gsheet_cog", return_value=gsheet):
         hdb.check_duplicates.return_value = False
         await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
-                              role_name="Team", create_solved_sheet=True, creator=creator)
+                              role_name="Team", create_solved_sheet=True, creator=creator,
+                              sheet_mode="tabs")
     hunt = _committed_hunt(hdb.commit)
     assert hunt.google_sheet_id == "SHEET_ID"
     assert hunt.solved_sheet_id == "ARCH_ID"
@@ -564,11 +565,25 @@ async def test_create_hunt_tabs_mode_makes_exactly_todays_calls():
          patch.object(svc, "_gsheet_cog", return_value=gsheet):
         hdb.check_duplicates.return_value = False
         await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
-                              create_solved_sheet=True)
+                              create_solved_sheet=True, sheet_mode="tabs")
     assert gsheet.mock_calls == [call.create_hunt_spreadsheet("H"),
                                  call.create_solved_sheet("H")]
     hunt = _committed_hunt(hdb.commit)
     assert (hunt.sheet_mode, hunt.drive_folder_id, hunt.solved_folder_id) == ("tabs", "", "")
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_defaults_to_files_mode():
+    svc, guild = _create_service(), _create_guild()
+    gsheet = _file_cog()
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet):
+        hdb.check_duplicates.return_value = False
+        await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0)
+    hunt = _committed_hunt(hdb.commit)
+    assert hunt.sheet_mode == "files"
+    assert hunt.drive_folder_id != ""
+    gsheet.create_hunt_spreadsheet.assert_not_called()
 
 
 @pytest.mark.asyncio

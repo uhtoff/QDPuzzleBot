@@ -16,16 +16,21 @@ def _no_organiser_reminder():
 
 
 @pytest.mark.parametrize("text,expected", [
-    ("Big Hunt", ("Big Hunt", "tabs", False)),
+    # Files is the default; `, tabs` opts out (`, files` is still accepted).
+    ("Big Hunt", ("Big Hunt", "files", False)),
     ("Big Hunt, files", ("Big Hunt", "files", False)),
-    ("Big Hunt, multi-team", ("Big Hunt", "tabs", True)),
+    ("Big Hunt, tabs", ("Big Hunt", "tabs", False)),
+    ("Big Hunt, multi-team", ("Big Hunt", "files", True)),
+    ("Big Hunt, tabs, multi-team", ("Big Hunt", "tabs", True)),
+    ("Big Hunt, multi-team, tabs", ("Big Hunt", "tabs", True)),
     ("Big Hunt, files, multi-team", ("Big Hunt", "files", True)),
-    ("Big Hunt, multi-team, files", ("Big Hunt", "files", True)),
-    ("Big Hunt ,  MULTI-Team ", ("Big Hunt", "tabs", True)),
-    ("Foo, Bar", ("Foo, Bar", "tabs", False)),
-    ("Foo, Bar, multi-team", ("Foo, Bar", "tabs", True)),
-    ("Foo, multi-team, Bar", ("Foo, multi-team, Bar", "tabs", False)),
-    ("Big Hunt, multi-teams", ("Big Hunt, multi-teams", "tabs", False)),
+    ("Big Hunt ,  MULTI-Team ", ("Big Hunt", "files", True)),
+    ("Big Hunt ,  TABS ", ("Big Hunt", "tabs", False)),
+    ("Foo, Bar", ("Foo, Bar", "files", False)),
+    ("Foo, Bar, multi-team", ("Foo, Bar", "files", True)),
+    ("Foo, tabs, Bar", ("Foo, tabs, Bar", "files", False)),
+    ("Foo, multi-team, Bar", ("Foo, multi-team, Bar", "files", False)),
+    ("Big Hunt, multi-teams", ("Big Hunt, multi-teams", "files", False)),
 ])
 def test_parse_setup_tail(text, expected):
     assert parse_setup_tail(text) == expected

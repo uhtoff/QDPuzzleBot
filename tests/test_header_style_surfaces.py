@@ -44,11 +44,12 @@ async def test_hunt_default_is_compact():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("arg,sheet_mode,voice,role", [
-    ("m:https://h/, full", "tabs", None, None),
-    ("m:https://h/, FULL", "tabs", None, None),
-    ("m:https://h/, full, files", "files", None, None),
+    ("m:https://h/, full", "files", None, None),
+    ("m:https://h/, FULL", "files", None, None),
+    ("m:https://h/, full, tabs", "tabs", None, None),
+    ("m:https://h/, tabs, full, voice", "tabs", True, None),
     ("m:https://h/, files, full, voice", "files", True, None),
-    ("m:https://h/, Team A, full", "tabs", None, "Team A"),
+    ("m:https://h/, Team A, full", "files", None, "Team A"),
 ])
 async def test_hunt_full_token(arg, sheet_mode, voice, role):
     args, kwargs = await _run_hunt(arg)

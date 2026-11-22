@@ -38,9 +38,16 @@ async def _run_hunt(arg):
 
 
 @pytest.mark.asyncio
-async def test_hunt_default_is_tabs():
+async def test_hunt_default_is_files():
     _, kwargs = await _run_hunt("m:https://h/")
+    assert kwargs["sheet_mode"] == "files"
+
+
+@pytest.mark.asyncio
+async def test_hunt_tabs_token_selects_tabs():
+    args, kwargs = await _run_hunt("m:https://h/, tabs")
     assert kwargs["sheet_mode"] == "tabs"
+    assert (args[1], args[2], args[3]) == ("m", "https://h/", None)
 
 
 @pytest.mark.asyncio
@@ -316,10 +323,12 @@ async def test_hunt_command_posts_the_organiser_reminder(reminder):
 # ------------------------------------------------- voice-for-every-puzzle at creation
 @pytest.mark.asyncio
 @pytest.mark.parametrize("arg,expected_mode,expected_role", [
-    ("m:https://h/, voice", "tabs", None),
+    ("m:https://h/, voice", "files", None),
+    ("m:https://h/, tabs, voice", "tabs", None),
+    ("m:https://h/, voice, tabs", "tabs", None),
     ("m:https://h/, files, voice", "files", None),
-    ("m:https://h/, voice, files", "files", None),
-    ("m:https://h/, Team A, Voice", "tabs", "Team A"),
+    ("m:https://h/, Team A, Voice", "files", "Team A"),
+    ("m:https://h/, Team A, tabs, Voice", "tabs", "Team A"),
 ])
 async def test_hunt_voice_token(arg, expected_mode, expected_role):
     args, kwargs = await _run_hunt(arg)

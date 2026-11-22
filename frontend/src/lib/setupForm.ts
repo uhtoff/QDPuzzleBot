@@ -24,7 +24,7 @@ export interface SetupPayload {
   username?: string;
   password?: string;
   create_solved_sheet?: boolean;
-  sheet_mode?: "files";
+  sheet_mode: "files" | "tabs";
   send_invites: boolean;
   multi_team?: true;
 }
@@ -39,7 +39,7 @@ export const emptySetupForm = (offsetMinutes: number): SetupForm => ({
   username: "",
   password: "",
   createSolvedSheet: false,
-  filesMode: false,
+  filesMode: true,
   sendInvites: false,
   multiTeam: false,
 });
@@ -53,6 +53,8 @@ export function buildPayload(form: SetupForm): SetupPayload {
     hunt_name: form.huntName.trim(),
     hunt_url: form.huntUrl.trim(),
     send_invites: form.sendInvites === true,
+    // Sent either way: the server defaults to files, so a tabs hunt must say so.
+    sheet_mode: form.filesMode ? "files" : "tabs",
   };
   const ts = form.startLocal ? localToTs(form.startLocal, form.startOffsetMinutes) : null;
   if (ts != null) payload.start_timestamp = ts;
@@ -61,8 +63,7 @@ export function buildPayload(form: SetupForm): SetupPayload {
   const password = form.password.trim();
   if (password) payload.password = password;
   // A files hunt has no solved spreadsheet, so the two never go out together.
-  if (form.filesMode) payload.sheet_mode = "files";
-  else if (form.createSolvedSheet) payload.create_solved_sheet = true;
+  if (!form.filesMode && form.createSolvedSheet) payload.create_solved_sheet = true;
   if (form.multiTeam) payload.multi_team = true;
   return payload;
 }

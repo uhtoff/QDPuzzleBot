@@ -132,7 +132,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [createSolvedSheet, setCreateSolvedSheet] = useState(false);
-  const [filesMode, setFilesMode] = useState(false);
+  const [filesMode, setFilesMode] = useState(true);
   const [voicePerPuzzle, setVoicePerPuzzle] = useState(false);
   const [headerStyle, setHeaderStyle] = useState<"full" | "compact">("compact");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -199,9 +199,10 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
     if (roleName.trim()) payload.role_name = roleName.trim();
     if (username.trim()) payload.username = username.trim();
     if (password.trim()) payload.password = password.trim();
+    // Sent either way: the server defaults to files, so a tabs hunt must say so.
     // A files hunt has no solved spreadsheet, so the two are never sent together.
-    if (filesMode) payload.sheet_mode = "files";
-    else if (createSolvedSheet) payload.create_solved_sheet = true;
+    payload.sheet_mode = filesMode ? "files" : "tabs";
+    if (!filesMode && createSolvedSheet) payload.create_solved_sheet = true;
     payload.voice_per_puzzle = voicePerPuzzle;
     payload.header_style = headerStyle;
 
