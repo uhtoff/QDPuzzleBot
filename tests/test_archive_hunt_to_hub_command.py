@@ -80,7 +80,10 @@ async def test_names_the_hub_then_reports_there_even_if_ctx_channel_is_gone():
     hub.get_channel.assert_called_once_with(3000)
     summary = hub_channel.send.await_args.args[0]
     assert "H - me" in summary
-    assert "left this server" in summary
+    # the hub's copy doesn't claim the bot left (it's the team server it left)...
+    assert "left this server" not in summary
+    # ...but the team-server reply that was attempted does
+    assert "left this server" in ctx.send.await_args.args[0]
 
 
 async def test_refuses_an_archived_hunt_before_resolving_the_hub():
