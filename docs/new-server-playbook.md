@@ -117,10 +117,12 @@ applied turns up nothing and looks like a missing implementation. It is not.
 !set_start <unix timestamp>
 !set_end <unix timestamp>         # optional; hunts default to no end date
 !set_login username:password      # if the hunt has a shared login
-!use_solved_sheet                 # move solved puzzles to a second spreadsheet
+!use_solved_sheet                 # tabs hunts only: move solved puzzles to a second spreadsheet
 ```
 
-`!use_solved_sheet` is worth it for a big hunt — it keeps the main spreadsheet fast.
+New hunts get one spreadsheet per puzzle, which needs no solved sheet. For a hunt created
+with `, tabs`, `!use_solved_sheet` is worth it for a big hunt — it keeps the main
+spreadsheet fast.
 
 ## 7. Sanity check before the hunt opens
 

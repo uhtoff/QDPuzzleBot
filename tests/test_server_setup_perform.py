@@ -229,13 +229,13 @@ async def test_perform_setup_threads_sheet_mode_to_create_hunt():
         notifier.return_value.welcome = AsyncMock()
         await server_setup.perform_setup(
             MagicMock(), service, guild, _invoker(), 1000, 70, "Big Hunt", "https://h.example",
-            sheet_mode="files")
-        assert service.create_hunt.await_args.kwargs["sheet_mode"] == "files"
+            sheet_mode="tabs")
+        assert service.create_hunt.await_args.kwargs["sheet_mode"] == "tabs"
         service.create_hunt.reset_mock()
         server_setup._RUNNING.clear()
         await server_setup.perform_setup(
             MagicMock(), service, guild, _invoker(), 1000, 70, "Big Hunt", "https://h.example")
-        assert service.create_hunt.await_args.kwargs["sheet_mode"] == "tabs"
+        assert service.create_hunt.await_args.kwargs["sheet_mode"] == "files"  # the default
 
 
 async def test_perform_setup_threads_hub_and_multi_team_to_run_setup():

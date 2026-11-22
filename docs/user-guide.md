@@ -372,9 +372,10 @@ click **Add**; each extra sheet is listed there with a link, and a remove button
 
 ### Files mode: one spreadsheet per puzzle
 
-A hunt can instead give every puzzle its own Google spreadsheet. Pick it when you create the
-hunt (`!hunt name:url, files`, or the **One spreadsheet per puzzle** switch under Advanced on
-the dashboard's create form and server setup page). What goes where:
+New hunts give every puzzle its own Google spreadsheet -- this is the default. For the older
+single spreadsheet with a tab per puzzle, turn off the **One spreadsheet per puzzle** switch
+(under Advanced on the dashboard's create form, and on the server setup page) or append
+`, tabs` (`!hunt name:url, tabs`). What goes where in files mode:
 
 - The hunt gets a Drive folder named after it, with a **Solved** subfolder, and a
   `<hunt> Reference` spreadsheet in the folder. The Reference spreadsheet holds REFERENCE,
@@ -675,12 +676,13 @@ The full [command reference](commands.md) lists every command; highlights:
   code performs, pinning the admin/organiser roles (`!set_admin_roles`) and setting the
   team role's overwrite on the hunt's initial category.
 - **Starting a hunt:** `!hunt Hunt Name:https://hunt.example` in the bot channel.
-  Append `, RoleName` to gate the hunt to a team role, `, files` for
-  [one spreadsheet per puzzle](#files-mode-one-spreadsheet-per-puzzle), and `, full` for the
+  New hunts get [one spreadsheet per puzzle](#files-mode-one-spreadsheet-per-puzzle).
+  Append `, RoleName` to gate the hunt to a team role, `, tabs` for a single spreadsheet
+  with a tab per puzzle, and `, full` for the
   original labelled sheet header (see "Sheet header style" below). Then `!set_start TIMESTAMP` (and `!set_end TIMESTAMP`
   if the hunt has an end — hunts default to no end date) and
-  `!set_login user:pass` if the hunt has a shared login, and `!use_solved_sheet` if you
-  want solved puzzles moved to a second spreadsheet to keep the main one fast.
+  `!set_login user:pass` if the hunt has a shared login, and `!use_solved_sheet` (tabs hunts only) if
+  you want solved puzzles moved to a second spreadsheet to keep the main one fast.
 - **Keeping things tidy mid-hunt:** `!sync` (in a group's channel) tags every channel in
   the category into the group; `!rebuild` regenerates meta roll-up sheets;
   `!reconcile apply` heals any drift between Discord, Sheets and the database.

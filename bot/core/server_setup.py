@@ -154,16 +154,17 @@ async def _has_welcome(lobby, bot_id):
 
 
 def parse_setup_tail(text: str) -> tuple[str, str, bool]:
-    """Split `<hunt name>[, files][, multi-team]` (clauses in either order) into
+    """Split `<hunt name>[, tabs|files][, multi-team]` (clauses in either order) into
     (hunt_name, sheet_mode, multi_team). Clauses are peeled off the end while they
-    are exactly `files` or `multi-team`; a name with an inner comma stays whole."""
-    sheet_mode, multi_team = "tabs", False
+    are exactly `tabs`, `files` or `multi-team`; a name with an inner comma stays
+    whole. Files (one spreadsheet per puzzle) is the default."""
+    sheet_mode, multi_team = "files", False
     name = text.rstrip()
     while "," in name:
         head, _, tail = name.rpartition(",")
         clause = tail.strip().lower()
-        if clause == "files":
-            sheet_mode = "files"
+        if clause in ("files", "tabs"):
+            sheet_mode = clause
         elif clause == "multi-team":
             multi_team = True
         else:
@@ -174,7 +175,7 @@ def parse_setup_tail(text: str) -> tuple[str, str, bool]:
 
 async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_name, hunt_url,
                     *, start_timestamp=0, username="", password="", create_solved_sheet=False,
-                    sheet_mode="tabs", hub=None, multi_team=False):
+                    sheet_mode="files", hub=None, multi_team=False):
     """Do the setup steps, then stamp the run-once lock. Never raises: a failure
     lands in report.error, with the lock unwritten so a re-run finishes the job."""
     report = SetupReport()
@@ -268,7 +269,7 @@ def _refused(text):
 
 async def perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hunt_name, hunt_url,
                         *, start_timestamp=0, username="", password="", create_solved_sheet=False,
-                        sheet_mode="tabs", on_start=None, invites_by_dashboard=False, via_dashboard=False,
+                        sheet_mode="files", on_start=None, invites_by_dashboard=False, via_dashboard=False,
                         multi_team=False):
     """The whole !setup_server flow after argument parsing, shared with the
     dashboard. *invoker* is a Member of *guild*. *on_start*, if given, is

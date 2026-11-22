@@ -162,7 +162,7 @@ async def test_a_refused_mod_invite_adds_a_line_but_setup_still_completes():
     assert "Setup complete" in text and "Mod invite not posted: nope" in text
 
 
-async def test_trailing_files_token_sets_the_mode_and_leaves_the_name():
+async def test_trailing_tabs_token_sets_the_mode_and_leaves_the_name():
     cog = make_cog(); cog.bot = MagicMock(); ctx = _ctx()
     seen = {}
 
@@ -172,11 +172,11 @@ async def test_trailing_files_token_sets_the_mode_and_leaves_the_name():
 
     with patch("bot.core.server_setup.perform_setup", new=fake_perform):
         await Puzzles.setup_server.callback(cog, ctx, 1000, 70, "https://h.example",
-                                            hunt_name="Big Hunt, files")
-        assert (seen["name"], seen["sheet_mode"]) == ("Big Hunt", "files")
+                                            hunt_name="Big Hunt, tabs")
+        assert (seen["name"], seen["sheet_mode"]) == ("Big Hunt", "tabs")
         await Puzzles.setup_server.callback(cog, ctx, 1000, 70, "https://h.example",
                                             hunt_name="Big Hunt")
-        assert (seen["name"], seen["sheet_mode"]) == ("Big Hunt", "tabs")
+        assert (seen["name"], seen["sheet_mode"]) == ("Big Hunt", "files")  # the default
 
 
 async def test_trailing_multi_team_clause_is_passed_and_stripped():
@@ -189,8 +189,8 @@ async def test_trailing_multi_team_clause_is_passed_and_stripped():
 
     with patch("bot.core.server_setup.perform_setup", new=fake_perform):
         await Puzzles.setup_server.callback(cog, ctx, 1000, 70, "https://h.example",
-                                            hunt_name="Big Hunt, multi-team, files")
-        assert (seen["name"], seen["sheet_mode"], seen["multi_team"]) == ("Big Hunt", "files", True)
+                                            hunt_name="Big Hunt, multi-team, tabs")
+        assert (seen["name"], seen["sheet_mode"], seen["multi_team"]) == ("Big Hunt", "tabs", True)
         await Puzzles.setup_server.callback(cog, ctx, 1000, 70, "https://h.example",
                                             hunt_name="Big Hunt")
-        assert (seen["name"], seen["sheet_mode"], seen["multi_team"]) == ("Big Hunt", "tabs", False)
+        assert (seen["name"], seen["sheet_mode"], seen["multi_team"]) == ("Big Hunt", "files", False)

@@ -736,10 +736,11 @@ class Puzzles(commands.Cog):
     async def hunt(self, ctx, *, arg):
         """*Create a new hunt: its category, general channel and Google sheet.*
 
-        Usage: `!hunt hunt-name:hunt-url[, role-name][, files][, voice][, full]`
+        Usage: `!hunt hunt-name:hunt-url[, role-name][, tabs][, voice][, full]`
         Example: `!hunt mystery-2026:https://hunt.example.com`
-        Add `, Team A` to gate the hunt behind a role. Append `, files` for one
-        Google spreadsheet per puzzle in a Drive folder, and/or `, voice` to give
+        Add `, Team A` to gate the hunt behind a role. New hunts get one Google
+        spreadsheet per puzzle in a Drive folder; append `, tabs` for the older
+        single spreadsheet with a tab per puzzle. Append `, voice` to give
         every new puzzle its own voice channel. Append `, full` for the original
         labelled sheet header (new hunts get the compact one). Run in the bot channel.
         Admins/mods only. Alias: `!h`"""
@@ -747,17 +748,20 @@ class Puzzles(commands.Cog):
         if not (await self.check_is_bot_channel(ctx)):
             return
 
-        # An optional trailing ", files" token selects one-spreadsheet-per-puzzle
-        # mode. Strip it first so the name:url[, role] parsing below is unaffected.
-        # Likewise a trailing ", voice" (either order with ", files") turns on a
+        # Hunts default to one spreadsheet per puzzle; an optional trailing ", tabs"
+        # token selects the single tabbed spreadsheet (", files" is still accepted,
+        # and is the default anyway). Strip these first so the name:url[, role]
+        # parsing below is unaffected. Likewise a trailing ", voice" turns on a
         # voice channel for every puzzle; without it the server default applies.
-        sheet_mode = "tabs"
+        sheet_mode = "files"
         voice_per_puzzle = None
         header_style = DEFAULT_HEADER_STYLE
         arg = arg.rstrip()
         while True:
             if arg.lower().endswith(", files"):
                 arg, sheet_mode = arg[: -len(", files")].rstrip(), "files"
+            elif arg.lower().endswith(", tabs"):
+                arg, sheet_mode = arg[: -len(", tabs")].rstrip(), "tabs"
             elif arg.lower().endswith(", voice"):
                 arg, voice_per_puzzle = arg[: -len(", voice")].rstrip(), True
             elif arg.lower().endswith(", full"):
@@ -789,7 +793,7 @@ class Puzzles(commands.Cog):
         await ctx.send(f"Unable to parse hunt name {arg}, try using `!h hunt-name:hunt-url`")
 
     async def create_hunt(self, ctx, hunt_name: str, hunt_url: str, role_name: Optional[str] = None,
-                          sheet_mode: str = "tabs", voice_per_puzzle: Optional[bool] = None,
+                          sheet_mode: str = "files", voice_per_puzzle: Optional[bool] = None,
                           header_style: str = DEFAULT_HEADER_STYLE):
         if await self.check_available_space(ctx, 5, 2) is False:
             await ctx.send(":x: There is not enough enough space on the server to create a new hunt, please inform the moderators.")
@@ -4460,9 +4464,10 @@ class Puzzles(commands.Cog):
     async def setup_server(self, ctx, hub_id: int, roster_role_id: int, hunt_url: str, *, hunt_name: str):
         """*Set up a server freshly made from the team-server template (runs once).*
 
-        Usage: `!setup_server <hub server id> <hub role id> <hunt url> <hunt name>[, files][, multi-team]`
+        Usage: `!setup_server <hub server id> <hub role id> <hunt url> <hunt name>[, tabs][, multi-team]`
         Example: `!setup_server 123456789012345678 234567890123456789 https://hunt.example Big Hunt`
-        Add `, files` after the hunt name for one Google spreadsheet per puzzle.
+        The hunt gets one Google spreadsheet per puzzle; add `, tabs` after the hunt
+        name for a single spreadsheet with a tab per puzzle.
         Add `, multi-team` if several teams are fielding this hunt: it joins (or starts)
         the multi-team hunt of that name on the hub, with its no-spoiler and finishers channels.
         You must be this server's owner (or an admin here) and an admin on the hub.

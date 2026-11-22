@@ -25,6 +25,7 @@ describe("buildPayload", () => {
       hunt_name: "Mystery Hunt",
       hunt_url: "https://hunt.test",
       send_invites: false,
+      sheet_mode: "files",
     });
   });
 
@@ -36,6 +37,7 @@ describe("buildPayload", () => {
         username: " u ",
         password: "p",
         createSolvedSheet: true,
+        filesMode: false,
         sendInvites: true,
       }),
     );
@@ -49,12 +51,15 @@ describe("buildPayload", () => {
     });
   });
 
-  it("sends files mode and drops the solved-sheet option with it", () => {
-    const files = buildPayload(filled({ filesMode: true, createSolvedSheet: true }));
+  it("defaults to files mode and drops the solved-sheet option with it", () => {
+    const files = buildPayload(filled({ createSolvedSheet: true }));
     expect(files.sheet_mode).toBe("files");
     expect(files).not.toHaveProperty("create_solved_sheet");
-    const tabs = buildPayload(filled({ createSolvedSheet: true }));
-    expect(tabs).not.toHaveProperty("sheet_mode");
+  });
+
+  it("sends tabs explicitly (the server defaults to files) with the solved sheet", () => {
+    const tabs = buildPayload(filled({ filesMode: false, createSolvedSheet: true }));
+    expect(tabs.sheet_mode).toBe("tabs");
     expect(tabs.create_solved_sheet).toBe(true);
   });
 
