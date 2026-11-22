@@ -847,6 +847,8 @@ export function useEditClueNote(huntUid: string) {
 export interface HuntSettingsPatch {
   url?: string;
   start_timestamp?: number;
+  /** null clears it: no end date. */
+  end_timestamp?: number | null;
   username?: string;
   password?: string;
   url_sep?: string;
@@ -1051,6 +1053,8 @@ export interface CreateHuntPayload {
   name: string;
   url: string;
   start_timestamp: number;
+  /** Omitted = no end date. */
+  end_timestamp?: number;
   role_name?: string;
   username?: string;
   password?: string;

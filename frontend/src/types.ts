@@ -199,6 +199,8 @@ export interface HuntDetail {
     can_administer: boolean;
     organiser_gate_active: boolean;
     start_timestamp: number | null;
+    /** null = no end date. */
+    end_timestamp: number | null;
     username: string;
     password: string;
     url_sep: string;

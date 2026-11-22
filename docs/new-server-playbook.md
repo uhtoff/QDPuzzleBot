@@ -115,6 +115,7 @@ applied turns up nothing and looks like a missing implementation. It is not.
 
 ```
 !set_start <unix timestamp>
+!set_end <unix timestamp>         # optional; hunts default to no end date
 !set_login username:password      # if the hunt has a shared login
 !use_solved_sheet                 # move solved puzzles to a second spreadsheet
 ```

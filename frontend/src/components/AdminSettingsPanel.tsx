@@ -30,12 +30,14 @@ import { TypedConfirmModal } from "./TypedConfirmModal";
 import { TeamArchiveModal } from "./TeamArchiveModal";
 import { useArchiveHunt, useCompleteHunt, useCreateSolvedSheet, useDeleteHunt, useSetSheetMode, useUpdateHuntSettings, useVoiceCleanup, type HuntSettingsPatch } from "../api";
 import { UTC_OFFSET_OPTIONS, browserOffsetMinutes, localToTs, tsToLocal } from "../util";
+import { EndTimeInput, endTimeError } from "./EndTimeInput";
 
 interface AdminSettingsPanelProps {
   uid: string;
   huntName: string;
   url: string;
   start_timestamp: number | null;
+  end_timestamp: number | null;
   username: string;
   password: string;
   url_sep: string;
@@ -58,6 +60,9 @@ interface FormValues {
   url: string;
   start_local: string;  // datetime-local input format, wall-clock time in start_offset_minutes
   start_offset_minutes: number;  // UTC offset (minutes east of UTC) start_local is expressed in
+  no_end: boolean;  // true = no end date
+  end_local: string;
+  end_offset_minutes: number;
   username: string;
   password: string;
   url_sep: string;
@@ -75,6 +80,7 @@ export const HEADER_STYLE_OPTIONS = [
 const SETTING_LABELS: Record<string, string> = {
   url: "website URL",
   start_timestamp: "start time",
+  end_timestamp: "end time",
   username: "shared username",
   password: "shared password",
   url_sep: "URL separator",
@@ -92,6 +98,7 @@ export function AdminSettingsPanel({
   huntName,
   url,
   start_timestamp,
+  end_timestamp,
   username,
   password,
   url_sep,
@@ -128,6 +135,9 @@ export function AdminSettingsPanel({
       url,
       start_local: tsToLocal(start_timestamp, offset),
       start_offset_minutes: offset,
+      no_end: end_timestamp == null,
+      end_local: tsToLocal(end_timestamp, offset),
+      end_offset_minutes: offset,
       username,
       password,
       url_sep,
@@ -150,6 +160,9 @@ export function AdminSettingsPanel({
       url,
       start_local: tsToLocal(start_timestamp, offset),
       start_offset_minutes: offset,
+      no_end: end_timestamp == null,
+      end_local: tsToLocal(end_timestamp, offset),
+      end_offset_minutes: offset,
       username,
       password,
       url_sep,
@@ -157,7 +170,15 @@ export function AdminSettingsPanel({
       voice_per_puzzle: voicePerPuzzle,
       header_style: headerStyle,
     });
-  }, [uid, url, start_timestamp, username, password, url_sep, puzzle_prefix, voicePerPuzzle, headerStyle]);
+  }, [uid, url, start_timestamp, end_timestamp, username, password, url_sep, puzzle_prefix, voicePerPuzzle, headerStyle]);
+
+  const formStartTs = values.start_local
+    ? localToTs(values.start_local, values.start_offset_minutes)
+    : null;
+  const endTs = !values.no_end && values.end_local
+    ? localToTs(values.end_local, values.end_offset_minutes)
+    : null;
+  const endError = endTimeError(values.no_end, endTs, formStartTs);
 
   const handleSave = useCallback(() => {
     const patch: HuntSettingsPatch = {};
@@ -173,6 +194,14 @@ export function AdminSettingsPanel({
       }
     } else if (start_timestamp != null && start_timestamp > 0) {
       patch.start_timestamp = 0;
+    }
+
+    if (endError) {
+      notifications.show({ message: endError, color: "red" });
+      return;
+    }
+    if (endTs !== end_timestamp) {
+      patch.end_timestamp = endTs;
     }
 
     if (values.username !== username) {
@@ -211,7 +240,7 @@ export function AdminSettingsPanel({
         notifications.show({ message: (e as Error).message, color: "red" });
       },
     });
-  }, [values, url, start_timestamp, username, password, url_sep, puzzle_prefix, voicePerPuzzle, headerStyle, settingsMut]);
+  }, [values, endTs, endError, url, start_timestamp, end_timestamp, username, password, url_sep, puzzle_prefix, voicePerPuzzle, headerStyle, settingsMut]);
 
   const handleToggleComplete = (complete: boolean) => {
     completeMut.mutate(complete, {
@@ -337,6 +366,21 @@ export function AdminSettingsPanel({
             w={130}
           />
         </Group>
+        <EndTimeInput
+          noEnd={values.no_end}
+          onNoEndChange={(v) => setValues((s) => ({
+            ...s,
+            no_end: v,
+            // Opening a blank end date starts it in the start's timezone.
+            end_offset_minutes: !v && !s.end_local ? s.start_offset_minutes : s.end_offset_minutes,
+          }))}
+          local={values.end_local}
+          onLocalChange={(local) => setValues((s) => ({ ...s, end_local: local }))}
+          offsetMinutes={values.end_offset_minutes}
+          onOffsetChange={(o) => setValues((s) => ({ ...s, end_offset_minutes: o }))}
+          error={values.end_local ? endError : null}
+          selectWidth={130}
+        />
 
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
           <TextInput

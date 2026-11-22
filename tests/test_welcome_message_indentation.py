@@ -233,3 +233,12 @@ def test_puzzle_links_field_includes_the_voice_channel_link():
     lines = [ln for ln in (embed.fields[0].value or "").splitlines() if ln]
     assert "• Voice: <#987>" in lines
     assert lines[-1].startswith("• [Overview Website]")
+
+
+def test_hunt_welcome_shows_end_time_only_when_set():
+    with_end = _hunt_welcome_info(_welcome_hunt(end_timestamp=1767398400))
+    lines = with_end.splitlines()
+    end = next(i for i, ln in enumerate(lines) if "Hunt End Time" in ln)
+    assert lines[end] == "• Hunt End Time: <t:1767398400:f>"   # no leftover indentation
+    assert "Hunt Start Time" in lines[end - 1]                  # sits right under the start
+    assert "Hunt End Time" not in _hunt_welcome_info(_welcome_hunt())

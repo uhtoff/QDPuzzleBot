@@ -46,7 +46,7 @@ reading all of them. Tiers nest — `ORGANISER_ROLES` includes the admin role na
 | | Category layout | `!extract_target_to_category` · `!consolidate_to` · `!backfill_glyphs` · `!absorb_category` · `!move_to_top` · `!move_to_bottom` · `!move_to_solved` |
 | | Maintenance | `!reconcile` · `!rebuild` · `!rebuild_unassigned` · `!list_tags` · `!media_stats` · `!media_sweep` · `!start_reminders` · `!stop_reminders` |
 | **Admins/mods** | Hunt lifecycle | `!hunt` (`!h`) · `!delete_hunt` · `!use_solved_sheet` · `!sheet_mode` · `!set_hunt_role` · `!hunt_complete` · `!hunt_not_complete` · `!setup_server` · `!post_role_panel` · `!send_invites` · `!invite_player` · `!mod_invite` |
-| | Settings | `!set_login` · `!set_start` · `!update_settings` · `!show_settings` · `!show_puzzle_settings` |
+| | Settings | `!set_login` · `!set_start` · `!set_end` · `!update_settings` · `!show_settings` · `!show_puzzle_settings` |
 | | Voice | `!voice_cleanup` · `!voice_per_puzzle` |
 | | Roles | `!set_admin_roles` · `!set_organiser_roles` · `!show_auth_roles` |
 | | Archive | `!archive_hunt` · `!archive_hunt_to_hub` · `!archive_multi_team` · `!archive_round` · `!archive_category` · `!archive_channel` · `!archive_solved_manually` |
@@ -79,6 +79,7 @@ Two things the table can't show:
 | `!sheet_mode` | | `[tabs\|files]` | Hunt channel | admins/mods | Show the hunt's sheet mode, or switch it. Switching works only while the hunt has no puzzles or groups (rounds, metas); the dashboard's Admin settings has the same switch. |
 | `!set_login` | | `username:password` | hunt channel | admins/mods | Store the hunt login shown on hunt info. |
 | `!set_start` | | `timestamp` (UNIX seconds) | hunt channel | admins/mods | Set the hunt start time. |
+| `!set_end` | | `timestamp` (UNIX seconds) or `none` | hunt channel | admins/mods | Set the hunt end time; `none` = no end date (the default). |
 | `!set_hunt_role` | | `hunt-name, role-name` | bot channel | admins/mods | Gate an existing OPEN hunt behind a team role (applies to web + Discord); confirms if the role already exists. |
 | `!delete_hunt` | | — | Hunt channel | admins/mods | Permanently delete the whole hunt (confirms). Not recoverable. |
 

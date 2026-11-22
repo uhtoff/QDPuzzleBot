@@ -27,6 +27,7 @@ import { IconChevronDown, IconChevronUp, IconPlus, IconShieldOff } from "@tabler
 import { useAdminGuilds, useCreateHunt, useHunts, type CreateHuntPayload } from "../api";
 import { HEADER_STYLE_OPTIONS } from "../components/AdminSettingsPanel";
 import { ConfirmModal } from "../components/ConfirmModal";
+import { EndTimeInput, endTimeError } from "../components/EndTimeInput";
 import { useViewAs } from "../context/ViewAsContext";
 import { useActivityFeed } from "../hooks/useActivityFeed";
 import type { HuntSummary } from "../types";
@@ -124,6 +125,9 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
   const [url, setUrl] = useState("");
   const [startLocal, setStartLocal] = useState("");
   const [startOffsetMinutes, setStartOffsetMinutes] = useState(browserOffsetMinutes);
+  const [noEnd, setNoEnd] = useState(true);
+  const [endLocal, setEndLocal] = useState("");
+  const [endOffsetMinutes, setEndOffsetMinutes] = useState(browserOffsetMinutes);
   const [roleName, setRoleName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -176,9 +180,13 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
     });
   };
 
+  const startTs = startLocal ? localToTs(startLocal, startOffsetMinutes) : null;
+  const endTs = !noEnd && endLocal ? localToTs(endLocal, endOffsetMinutes) : null;
+  const endError = endTimeError(noEnd, endTs, startTs);
+
   const handleSubmit = () => {
-    if (!guildId || !name.trim() || !url.trim() || !startLocal) return;
-    const startTimestamp = localToTs(startLocal, startOffsetMinutes);
+    if (!guildId || !name.trim() || !url.trim() || !startLocal || endError) return;
+    const startTimestamp = startTs;
     if (startTimestamp == null) return;
 
     const payload: CreateHuntPayload = {
@@ -187,6 +195,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
       url: url.trim(),
       start_timestamp: startTimestamp,
     };
+    if (endTs != null) payload.end_timestamp = endTs;
     if (roleName.trim()) payload.role_name = roleName.trim();
     if (username.trim()) payload.username = username.trim();
     if (password.trim()) payload.password = password.trim();
@@ -199,7 +208,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
     submit(payload);
   };
 
-  const canSubmit = !!guildId && !!name.trim() && !!url.trim() && !!startLocal;
+  const canSubmit = !!guildId && !!name.trim() && !!url.trim() && !!startLocal && !endError;
 
   return (
     <>
@@ -245,6 +254,19 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
             w={140}
           />
         </Group>
+        <EndTimeInput
+          noEnd={noEnd}
+          onNoEndChange={(v) => {
+            // Opening the end date starts it in the start's timezone.
+            if (!v && !endLocal) setEndOffsetMinutes(startOffsetMinutes);
+            setNoEnd(v);
+          }}
+          local={endLocal}
+          onLocalChange={setEndLocal}
+          offsetMinutes={endOffsetMinutes}
+          onOffsetChange={setEndOffsetMinutes}
+          error={endLocal ? endError : null}
+        />
 
         <Divider />
 
