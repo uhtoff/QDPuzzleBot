@@ -3013,6 +3013,37 @@ class Puzzles(commands.Cog):
             f":white_check_mark: I've updated the start time for hunt {hunt.name}"
         )
 
+    @commands.command()
+    @is_admin()
+    async def set_end(self, ctx, timestamp: str):
+        """*Set the hunt's end time from a UNIX timestamp, or `none` for no end date.*
+
+        Usage: `!set_end timestamp` or `!set_end none`
+        Example: `!set_end 1767398400`
+        Run in any channel belonging to the hunt. Admins/mods only."""
+        if self.get_channel_type(ctx) == "Guild":
+            await ctx.send(":x: This must be sent in a channel related to a hunt")
+            return
+
+        hunt = self.get_hunt(ctx)
+        assert hunt is not None  # non-Guild channels always resolve their hunt
+        if timestamp.lower() == "none":
+            end = None
+        else:
+            try:
+                end = int(timestamp)
+            except ValueError:
+                return await ctx.send(
+                    ":x: Give a UNIX timestamp, or `none` for no end date: `!set_end 1767398400`")
+            if hunt.start_timestamp and end <= hunt.start_timestamp:
+                return await ctx.send(":x: The end time must be after the hunt's start time.")
+        await self.service.update_hunt_settings(hunt, end_timestamp=end)
+        await self.service.notifier.refresh_info(ctx.guild, hunt)
+        what = f"<t:{end}:f>" if end is not None else "no end date"
+        return await ctx.send(
+            f":white_check_mark: I've set the end time for hunt {hunt.name} to {what}"
+        )
+
     @commands.command(aliases=["update_setting","update_puzzle_setting","update_puzzle_settings"])
     @is_admin()
     async def update_settings(self, ctx, setting_key: str, setting_value: str):
@@ -3264,10 +3295,12 @@ class Puzzles(commands.Cog):
         )
         files_mode = hunt.sheet_mode == "files"
         sheet_label = "Reference sheet" if files_mode else "Google Sheet"
+        end_line = (f"• Hunt End Time: <t:{hunt.end_timestamp}:f>\n                        "
+                    if hunt.end_timestamp else "")
         puzzle_links = (f"""The following are some useful links and information:
                         • [Hunt Website]({urls.normalize_external_url(hunt.url)})
                         • Hunt Start Time: <t:{hunt.start_timestamp}:f>
-                        • [{sheet_label}](https://docs.google.com/spreadsheets/d/{hunt.google_sheet_id})
+                        {end_line}• [{sheet_label}](https://docs.google.com/spreadsheets/d/{hunt.google_sheet_id})
                         """)
         folder = drive_folder_link(hunt.drive_folder_id) if files_mode else None
         if folder:

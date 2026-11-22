@@ -15,6 +15,7 @@ interface HuntInfoPanelProps {
   uid: string;
   url: string;
   start_timestamp: number | null;
+  end_timestamp: number | null;
   sheet_url: string | null;
   solved_sheet_url: string | null;
   /** Files-mode hunts: the folder holding every puzzle's spreadsheet. */
@@ -30,6 +31,7 @@ export function HuntInfoPanel({
   uid,
   url,
   start_timestamp,
+  end_timestamp,
   sheet_url,
   solved_sheet_url,
   drive_folder_url,
@@ -56,6 +58,8 @@ export function HuntInfoPanel({
     start_timestamp != null && start_timestamp > 0
       ? new Date(start_timestamp * 1000).toLocaleString()
       : null;
+  const endTimeStr =
+    end_timestamp != null ? new Date(end_timestamp * 1000).toLocaleString() : "No end date";
 
   return (
     <Stack gap="sm">
@@ -74,6 +78,7 @@ export function HuntInfoPanel({
       {startTimeStr && (
         <Text size="sm">Start time: {startTimeStr}</Text>
       )}
+      <Text size="sm">End time: {endTimeStr}</Text>
 
       {sheet_url && (
         <Group gap={6}>

@@ -176,6 +176,7 @@ async def hunt_detail(uid):
             "can_administer": can_administer,
             "organiser_gate_active": gate_active,
             "start_timestamp": hunt.get("start_timestamp"),
+            "end_timestamp": hunt.get("end_timestamp"),
             "username": hunt.get("username") or "",
             "password": hunt.get("password") or "",
             "url_sep": hunt.get("url_sep") or "-",

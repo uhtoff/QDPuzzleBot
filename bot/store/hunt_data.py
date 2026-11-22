@@ -41,6 +41,8 @@ class HuntData:
     # toggle it. Off for new hunts.
     canvas_enabled: bool = False
     start_timestamp: int = 0
+    # When the hunt ends (migration 062); None = no end date (an ongoing hunt).
+    end_timestamp: Optional[int] = None
     username: str = ""
     password: str = ""
     start_time: Optional[datetime.datetime] = None

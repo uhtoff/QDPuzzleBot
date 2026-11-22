@@ -4232,6 +4232,7 @@ class PuzzleService:
                 logger.exception("set_sheet_mode/create_hunt: compensation step failed")
 
     async def create_hunt(self, guild, *, name, url, start_timestamp,
+                          end_timestamp=None,
                           role_name=None, username=None, password=None,
                           create_solved_sheet=False,
                           guild_id=0, creator=None, confirm_existing_role=False,
@@ -4342,6 +4343,7 @@ class PuzzleService:
         new_hunt.solved_folder_id = solved_folder_id
         new_hunt.start_timestamp = start_timestamp
         new_hunt.start_time = datetime.datetime.fromtimestamp(start_timestamp, tz=pytz.UTC)
+        new_hunt.end_timestamp = end_timestamp
         if username:
             new_hunt.username = username
         if password:
@@ -4769,7 +4771,8 @@ class PuzzleService:
 
     @pushes_board()
     async def update_hunt_settings(self, hunt, *, url: Any = _UNSET, start_timestamp: Any = _UNSET,
-                             username: Any = _UNSET, password: Any = _UNSET, url_sep: Any = _UNSET,
+                             end_timestamp: Any = _UNSET, username: Any = _UNSET,
+                             password: Any = _UNSET, url_sep: Any = _UNSET,
                              puzzle_prefix: Any = _UNSET):
         """Apply whitelisted per-hunt settings and commit. Only provided keys change."""
         if url is not self._UNSET:
@@ -4777,6 +4780,8 @@ class PuzzleService:
         if start_timestamp is not self._UNSET:
             hunt.start_timestamp = start_timestamp
             hunt.start_time = datetime.datetime.fromtimestamp(start_timestamp, tz=pytz.UTC)
+        if end_timestamp is not self._UNSET:
+            hunt.end_timestamp = end_timestamp  # None = no end date
         if username is not self._UNSET:
             hunt.username = username
         if password is not self._UNSET:

@@ -821,9 +821,32 @@ async def require_admin(guild_snowflake):
 # --- Hunt create / delete (admin only) ------------------------------------
 
 _CREATE_HUNT_REQUIRED = {"guild_id", "name", "url", "start_timestamp"}
-_CREATE_HUNT_OPTIONAL = {"username", "password", "role_name", "create_solved_sheet",
+_CREATE_HUNT_OPTIONAL = {"end_timestamp", "username", "password", "role_name", "create_solved_sheet",
                          "confirm_existing_role", "sheet_mode", "voice_per_puzzle",
                          "header_style"}
+
+
+def _valid_timestamp(ts) -> bool:
+    """A JSON number usable as a UNIX timestamp (not a bool, not out of range)."""
+    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+        return False
+    try:
+        datetime.datetime.fromtimestamp(ts, tz=pytz.UTC)
+    except (OverflowError, OSError, ValueError):
+        return False
+    return True
+
+
+def _end_timestamp_error(end_ts, start_ts):
+    """None if ``end_ts`` is acceptable: None (no end date) or a valid timestamp
+    after ``start_ts`` (when the hunt has a start). Else the 400 error code."""
+    if end_ts is None:
+        return None
+    if not _valid_timestamp(end_ts):
+        return "bad_end_timestamp"
+    if start_ts and end_ts <= start_ts:
+        return "end_before_start"
+    return None
 
 
 @actions_bp.route("/hunts", methods=["POST"])
@@ -845,12 +868,11 @@ async def create_hunt():
     if "header_style" in body and body["header_style"] not in HEADER_STYLES:
         return jsonify({"error": "bad_header_style"}), 400
     start_timestamp = body["start_timestamp"]
-    if isinstance(start_timestamp, bool) or not isinstance(start_timestamp, (int, float)):
+    if not _valid_timestamp(start_timestamp):
         return jsonify({"error": "bad_start_timestamp"}), 400
-    try:
-        datetime.datetime.fromtimestamp(start_timestamp, tz=pytz.UTC)
-    except (OverflowError, OSError, ValueError):
-        return jsonify({"error": "bad_start_timestamp"}), 400
+    end_error = _end_timestamp_error(body.get("end_timestamp"), start_timestamp)
+    if end_error:
+        return jsonify({"error": end_error}), 400
 
     guild_id = body["guild_id"]
     guilds_map = await data.get_guilds_map()
@@ -929,7 +951,7 @@ async def create_hunt():
 
 # --- Hunt settings (admin only) --------------------------------------------
 
-_SETTINGS_KEYS = {"url", "start_timestamp", "username", "password", "url_sep", "puzzle_prefix",
+_SETTINGS_KEYS = {"url", "start_timestamp", "end_timestamp", "username", "password", "url_sep", "puzzle_prefix",
                   "voice_per_puzzle", "header_style"}
 
 
@@ -971,6 +993,18 @@ async def patch_hunt_settings(uid):
     style = body.pop("header_style", None)
     if "header_style" in request_keys and style not in HEADER_STYLES:
         return jsonify({"error": "bad_value", "field": "header_style"}), 400
+
+    # end_timestamp: null clears it (no end date); a number must fall after the
+    # start the hunt will have once this patch applies.
+    if "end_timestamp" in request_keys:
+        start_after = body.get("start_timestamp", hunt_obj.start_timestamp)
+        end_error = _end_timestamp_error(body["end_timestamp"], start_after)
+        if end_error:
+            return jsonify({"error": end_error}), 400
+    elif "start_timestamp" in request_keys and hunt_obj.end_timestamp is not None:
+        end_error = _end_timestamp_error(hunt_obj.end_timestamp, body["start_timestamp"])
+        if end_error:
+            return jsonify({"error": end_error}), 400
 
     await cog.service.update_hunt_settings(hunt_obj, **body)
     if voice_on is not None:

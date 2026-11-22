@@ -1,0 +1,17 @@
+-- 062_hunt_end_timestamp.sql
+-- Optional end time for a hunt, alongside start_timestamp.
+--   hunts.end_timestamp   UNIX seconds, or NULL for "no end date" (an ongoing
+--                         hunt). Existing hunts start as NULL — no end date.
+--
+-- PRE-FLIGHT: run in EVERY environment before pushing (a defaulted column does
+-- not prove itself by applying):
+--   SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()
+--     AND TABLE_NAME='hunts' AND COLUMN_NAME='end_timestamp';
+-- must return 0.
+--
+-- POST-CHECK:
+--   SELECT COUNT(*) FROM hunts WHERE end_timestamp IS NOT NULL;   -> 0
+--   SHOW COLUMNS FROM hunts LIKE 'end_timestamp';                  -> Null YES, Default NULL
+--
+-- Plain ADD COLUMN (not MariaDB's IF NOT EXISTS, which CI's MySQL 8 rejects).
+ALTER TABLE `hunts` ADD COLUMN `end_timestamp` INT(11) NULL DEFAULT NULL;

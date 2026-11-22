@@ -359,6 +359,7 @@ export default function HuntBoard() {
         editable={!data.hunt.archived}
         url={data.hunt.url}
         start_timestamp={data.hunt.start_timestamp}
+        end_timestamp={data.hunt.end_timestamp}
         sheet_url={data.hunt.sheet_url}
         solved_sheet_url={data.hunt.solved_sheet_url}
         drive_folder_url={data.hunt.drive_folder_url}
@@ -462,6 +463,7 @@ export default function HuntBoard() {
                   huntName={data.hunt.name}
                   url={data.hunt.url}
                   start_timestamp={data.hunt.start_timestamp}
+                  end_timestamp={data.hunt.end_timestamp}
                   username={data.hunt.username}
                   password={data.hunt.password}
                   url_sep={data.hunt.url_sep}
