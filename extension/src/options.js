@@ -8,6 +8,20 @@ chrome.storage.sync.get({ dashboardOrigin: DEFAULT_ORIGIN }).then(({ dashboardOr
   input.value = dashboardOrigin;
 });
 
+// The saved origin syncs across installs but its host permission does not, so a fresh
+// install can show the right origin with no access to it. Say so; Save grants it.
+const access = document.getElementById("access");
+const checkAccess = async () => {
+  const { dashboardOrigin } = await chrome.storage.sync.get({ dashboardOrigin: DEFAULT_ORIGIN });
+  const origin = parseOrigin(dashboardOrigin);
+  const ok = origin ? await chrome.permissions.contains({ origins: [origin + "/*"] }).catch(() => true) : true;
+  access.textContent = ok ? "" : "Puzzle Chat does not have access to " + origin + " yet. Click Save to allow it.";
+  access.hidden = ok;
+};
+checkAccess();
+chrome.permissions.onAdded.addListener(checkAccess);
+chrome.permissions.onRemoved.addListener(checkAccess);
+
 document.getElementById("save").addEventListener("click", async () => {
   const origin = parseOrigin(input.value);
   if (!origin) {
@@ -27,6 +41,7 @@ document.getElementById("save").addEventListener("click", async () => {
   if (old && old !== origin) await chrome.permissions.remove({ origins: [old + "/*"] }).catch(() => {});
   input.value = origin;
   status.textContent = "Saved.";
+  checkAccess();
 });
 
 const notify = document.getElementById("notify");
