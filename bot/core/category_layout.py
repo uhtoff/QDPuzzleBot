@@ -545,12 +545,25 @@ async def _maybe_unsplit(guild, owner_id, dao, _count):
                 "aborting (split state kept, next trigger retries)", u_cat.id)
             return
         if s_cat is not None:
+            def _order(ch):
+                return (ch.position, ch.id)
             movers = sorted(
                 (ch for ch in s_cat.text_channels if ch.name != SOLVE_DIVIDER),
-                key=lambda ch: ch.position)
-            base = max((ch.position for ch in u_cat.channels), default=-1) + 1
-            for i, ch in enumerate(movers):
-                await ch.edit(category=u_cat, position=base + i)
+                key=_order)
+            # ONE bulk update scoped to u_cat, from one snapshot of its order.
+            # Per-channel edit(position=...) is a guild-wide renumber built
+            # from the cache, which is stale between calls (the CHANNEL_UPDATEs
+            # for the previous renumber haven't all arrived), so later movers
+            # landed mid-unsolved / above general. Positions only order
+            # siblings within a parent, so other categories are untouched.
+            stay = sorted(u_cat.channels, key=_order)
+            payload = [{"id": ch.id, "position": i} for i, ch in enumerate(stay)]
+            payload += [{"id": ch.id, "position": len(stay) + i,
+                         "parent_id": u_cat.id}
+                        for i, ch in enumerate(movers)]
+            if movers:
+                await guild._state.http.bulk_channel_update(
+                    guild.id, payload, reason="un-split: merge solved back")
             await s_cat.delete(reason=DELETE_REASON)
     except Exception:
         logger.exception("unsplit: failed midway for owner %s (safe: rows "

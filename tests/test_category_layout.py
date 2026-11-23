@@ -869,6 +869,8 @@ def _unsplit_fixture(monkeypatch, n_unsolved=3, n_solved=2, divider_reaches_cach
 
     goc = AsyncMock(side_effect=_fake_get_or_create)
     monkeypatch.setattr(layout, "get_or_create_channel", goc)
+    guild.id = 42
+    guild._state.http.bulk_channel_update = AsyncMock()
     # Don't really sleep while polling for the cache in the timeout test.
     monkeypatch.setattr(layout, "_DIVIDER_WAIT_TRIES", 3)
     monkeypatch.setattr(layout, "_DIVIDER_WAIT_DELAY", 0)
@@ -878,19 +880,41 @@ def _unsplit_fixture(monkeypatch, n_unsolved=3, n_solved=2, divider_reaches_cach
 @pytest.mark.asyncio
 async def test_unsplit_merges_solved_back_under_divider(monkeypatch):
     """Both sides at seq=0 and small enough: recreate the divider at the bottom
-    of the unsolved category, move the solved channels below it with explicit
-    positions, delete the solved category, and delete the rows LAST."""
+    of the unsolved category, move the solved channels below it, delete the
+    solved category, and delete the rows LAST.
+
+    The move is ONE bulk position update scoped to the unsolved category, built
+    from a single snapshot of its order: per-channel edit(position=...) calls
+    each renumber the whole guild from the cache, which goes stale between
+    calls, so later movers landed above the divider / above general (live bug
+    2026-11-23)."""
     guild, u0, s0, dao, store, divider, goc = _unsplit_fixture(monkeypatch)
-    solved_channels = list(s0.channels)
+    for i, ch in enumerate(u0.channels):
+        ch.id = 1000 + i
+    # Unsolved channels out of list order by position, to prove we sort.
+    u0.channels[0].position, u0.channels[2].position = 2, 0
+    s0.channels[0].id, s0.channels[1].id = 2000, 2001
+    s0.channels[0].position, s0.channels[1].position = 7, 3   # 2001 comes first
+    divider.id = 999
 
     await layout.consolidate(guild, 5, dao)
 
     goc.assert_awaited_once_with(
         guild=guild, category=u0, channel_name=SOLVE_DIVIDER,
         channel_type="text", position=500)
-    # Movers land after the divider (position 3), in their original order.
-    solved_channels[0].edit.assert_awaited_once_with(category=u0, position=4)
-    solved_channels[1].edit.assert_awaited_once_with(category=u0, position=5)
+    guild._state.http.bulk_channel_update.assert_awaited_once()
+    args, kwargs = guild._state.http.bulk_channel_update.await_args
+    assert args[0] == 42
+    assert args[1] == [
+        {"id": 1002, "position": 0},
+        {"id": 1001, "position": 1},
+        {"id": 1000, "position": 2},
+        {"id": 999, "position": 3},                      # divider
+        {"id": 2001, "position": 4, "parent_id": 100},  # solved, original order
+        {"id": 2000, "position": 5, "parent_id": 100},
+    ]
+    for ch in s0.channels:
+        ch.edit.assert_not_awaited()
     s0.delete.assert_awaited_once()
     dao.delete_for_group.assert_called_once_with(5)
     assert store == []                     # owner is single-category again
@@ -939,8 +963,7 @@ async def test_unsplit_aborts_when_divider_never_reaches_cache(monkeypatch):
     await layout.consolidate(guild, 5, dao)
 
     goc.assert_awaited_once()
-    for ch in s0.channels:
-        ch.edit.assert_not_awaited()
+    guild._state.http.bulk_channel_update.assert_not_awaited()
     s0.delete.assert_not_awaited()
     assert len(store) == 2                 # rows survive -> resumable
 
