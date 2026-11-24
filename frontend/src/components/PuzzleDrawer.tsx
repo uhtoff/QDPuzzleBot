@@ -169,7 +169,7 @@ export function PuzzleDrawer({ puzzle, detail, voice, onClose }: Props) {
         onSuccess: (data) => { showSheetWarning(data); setRenameEditing(false); },
         onError: (err) => {
           setRenameEditing(false);
-          channelClash.handle(err, () => send(true));
+          if (!channelClash.handle(err, () => send(true))) notifyError(err);
         },
       });
     send(false);
