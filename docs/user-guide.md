@@ -145,6 +145,12 @@ pick the round or meta it belongs to (or *Unassigned*).
 Either way the bot creates the channel and the sheet and posts a welcome message with all
 the links. A puzzle created in a round channel lands in that round.
 
+Every puzzle gets a channel of its own. If its channel name is already taken in that
+category (a puzzle called "General" next to the hunt's `#general`, or "Foo Bar" next to an
+existing "Foo-Bar"), the bot asks first: **Accept** names the new channel `#general-1`
+(the next free number), **Cancel** creates nothing. The puzzle's own name is unchanged,
+and the `-1` stays on the channel through later tidying. Renaming works the same way.
+
 ### Telling the bot where the puzzle is
 
 The bot guesses the puzzle's page from the hunt URL and the puzzle name. If the guess is

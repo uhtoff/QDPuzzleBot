@@ -126,8 +126,8 @@ through the same service.)
 
 | Command | Aliases | Arguments | Where | Who | Does |
 |---|---|---|---|---|---|
-| `!puzzle` | `!p` | `name` | hunt/round | anyone | Create a puzzle channel and sheet. |
-| `!rename_puzzle` *(slash)* | `!rename_meta` | `new name` | puzzle channel | organisers/admins | Rename the puzzle, its channel and sheet tab. |
+| `!puzzle` | `!p` | `name` | hunt/round | anyone | Create a puzzle channel and sheet. If a channel with that name already exists in the category, asks Accept/Cancel and on Accept names the channel `name-1` (next free number). |
+| `!rename_puzzle` *(slash)* | `!rename_meta` | `new name` | puzzle channel | organisers/admins | Rename the puzzle, its channel and sheet tab. Same Accept/Cancel and `-1` channel name as `!puzzle` if the new channel name is taken. |
 | `!link` *(slash)* | | `url` | puzzle channel | anyone | Set/update the puzzle's hunt URL. |
 | `!status` *(slash)* | | `value` | puzzle channel | anyone | Set status: Unstarted, In Progress, Stuck, Needs Extraction, Needs Submission, Solved, Backsolved. Stored lowercase; the case you type does not matter. |
 | `!type` *(slash)* | | `puzzle_type` | puzzle channel | anyone | Set a freeform type label (e.g. crossword); the slash form autocompletes from types already used in the hunt. |
