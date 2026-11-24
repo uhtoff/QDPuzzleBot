@@ -5,6 +5,7 @@ import { IconPlus } from "@tabler/icons-react";
 import type { HuntDetail } from "../types";
 import { useCreateMeta, useCreatePuzzle, type MetaType } from "../api";
 import { notifyError, notifySuccess } from "../util";
+import { useChannelClashPrompt } from "./ChannelClashPrompt";
 
 // Sentinel dropdown value for "no meta" — sent to the API as an empty group_code.
 const UNASSIGNED = "__unassigned__";
@@ -41,20 +42,23 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
 
   const createPuzzle = useCreatePuzzle(uid);
   const createMeta = useCreateMeta(uid);
+  const channelClash = useChannelClashPrompt();
 
-  function submitPuzzle() {
+  function submitPuzzle(acceptChannelSuffix = false) {
     if (createPuzzle.isPending) return;   // block double-submit (e.g. a second Enter)
     const name = puzzleName.trim();
     if (!name || metaCode == null) return;
     createPuzzle.mutate(
-      { name, metaCode: metaCode === UNASSIGNED ? "" : metaCode },
+      { name, metaCode: metaCode === UNASSIGNED ? "" : metaCode, acceptChannelSuffix },
       {
         onSuccess: () => {
           notifySuccess(`Created puzzle "${name}"`);
           setPuzzleName("");
           puzzle.close();
         },
-        onError: notifyError,
+        onError: (err) => {
+          if (!channelClash.handle(err, () => submitPuzzle(true))) notifyError(err);
+        },
       }
     );
   }
@@ -78,6 +82,7 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
 
   return (
     <>
+      {channelClash.modal}
       <Group gap="xs">
         <Button size="xs" variant="light" leftSection={<IconPlus size={14} />} onClick={puzzle.open}>
           New puzzle
@@ -111,7 +116,7 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
             disabled={createPuzzle.isPending}
           />
           <Button
-            onClick={submitPuzzle}
+            onClick={() => submitPuzzle()}
             loading={createPuzzle.isPending}
             disabled={createPuzzle.isPending || !puzzleName.trim() || metaCode == null}
           >
