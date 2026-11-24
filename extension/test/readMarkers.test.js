@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DISCORD_EPOCH_MS, snowflakeAt, maxId, createMarkers } from "../src/lib/readMarkers.js";
+import { DISCORD_EPOCH_MS, MAX_READ, snowflakeAt, maxId, createMarkers } from "../src/lib/readMarkers.js";
 
 const T = 1700000000000; // 2023-11-14T22:13:20Z
 const snow = (ms) => String((BigInt(ms) - 1420070400000n) << 22n);
@@ -88,5 +88,18 @@ describe("createMarkers", () => {
   it("request drops read entries at or below the baseline", () => {
     const m = createMarkers({ baseline: "100", read: { a: "150", b: "100", c: "50" } });
     expect(m.request()).toEqual({ baseline: "100", read: { a: "150" } });
+  });
+  it("request can be limited to one hunt's chats", () => {
+    const m = createMarkers({ baseline: "100", read: { a: "150", b: "160", c: "170" } });
+    expect(m.request(["a", "c", "zz"])).toEqual({ baseline: "100", read: { a: "150", c: "170" } });
+  });
+  it("request keeps only the newest markers past the server's cap", () => {
+    const read = {};
+    for (let i = 1; i <= MAX_READ + 2; i++) read["c" + i] = String(1000 + i);
+    const out = createMarkers({ baseline: "100", read }).request().read;
+    expect(Object.keys(out).length).toBe(MAX_READ);
+    expect(out.c1).toBeUndefined();
+    expect(out.c2).toBeUndefined();
+    expect(out["c" + (MAX_READ + 2)]).toBe(String(1000 + MAX_READ + 2));
   });
 });

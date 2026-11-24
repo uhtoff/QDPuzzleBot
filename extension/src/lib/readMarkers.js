@@ -3,6 +3,8 @@
 // per-channel `read` markers. Snowflakes outgrow Number, so compare with BigInt.
 
 export const DISCORD_EPOCH_MS = 1420070400000n;
+// The server refuses more read markers than this (bot/web/unread.py MAX_READ_ENTRIES).
+export const MAX_READ = 500;
 
 const isId = (v) => typeof v === "string" && /^\d+$/.test(v);
 
@@ -57,12 +59,18 @@ export function createMarkers(initial) {
       read = { ...(prev?.read ?? {}) };
     },
     isUnread: (channelId, messageId) => BigInt(messageId) > BigInt(effective(channelId)),
-    // What the server needs: entries at or below the baseline add nothing.
-    request() {
+    // What the server needs: entries at or below the baseline add nothing. Limit to
+    // `channelIds` (one hunt's chats) when known; past the server's cap keep the
+    // newest, since an older marker matters least.
+    request(channelIds) {
       const base = baseline ?? "0";
-      const out = {};
-      for (const [cid, id] of Object.entries(read)) if (BigInt(id) > BigInt(base)) out[cid] = id;
-      return { baseline: base, read: out };
+      const only = channelIds ? new Set(channelIds) : null;
+      let entries = Object.entries(read).filter(([cid, id]) => (!only || only.has(cid)) && BigInt(id) > BigInt(base));
+      if (entries.length > MAX_READ) {
+        entries.sort(([, a], [, b]) => (BigInt(a) > BigInt(b) ? -1 : BigInt(a) < BigInt(b) ? 1 : 0));
+        entries = entries.slice(0, MAX_READ);
+      }
+      return { baseline: base, read: Object.fromEntries(entries) };
     },
   };
 }
