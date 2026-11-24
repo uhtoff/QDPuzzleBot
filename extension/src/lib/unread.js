@@ -18,5 +18,3 @@ export function createUnread({ isTracked, initial = [] } = {}) {
   };
   return api;
 }
-
-export const badgeText = (total) => (total <= 0 ? "" : total > 99 ? "99+" : String(total));

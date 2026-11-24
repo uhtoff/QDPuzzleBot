@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createUnread, badgeText } from "../src/lib/unread.js";
+import { createUnread } from "../src/lib/unread.js";
 
 const tracked = (...ids) => (c) => ids.includes(c);
 
@@ -53,11 +53,5 @@ describe("unread", () => {
     expect(u2.count("a")).toBe(2);
     expect(u2.count("b")).toBe(1);
     expect(u2.total()).toBe(3);
-  });
-  it("badgeText is empty at 0, the number, and capped at 99+", () => {
-    expect(badgeText(0)).toBe("");
-    expect(badgeText(7)).toBe("7");
-    expect(badgeText(99)).toBe("99");
-    expect(badgeText(100)).toBe("99+");
   });
 });

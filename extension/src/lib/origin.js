@@ -55,6 +55,11 @@ export function huntChatPath(uid) {
   return "/api/hunts/" + encodeURIComponent(uid) + "/chat";
 }
 
+// The unread summary for the extension's unread list (POST, with read markers).
+export function huntUnreadPath(uid) {
+  return "/api/hunts/" + encodeURIComponent(uid) + "/unread";
+}
+
 export function messagesPath(channelId) {
   return "/api/channels/" + encodeURIComponent(channelId) + "/messages?limit=50";
 }
