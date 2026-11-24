@@ -41,7 +41,7 @@ from bot.store import GuildSettingsDb, HuntJsonDb, HuntInviteDb, HuntAccessLogDb
 from bot.web import team_access
 from bot.core.locks import (puzzle_lock, puzzles_lock, convert_lock_ids,
                             hunt_create_lock, hunt_sheet_lock)
-from bot.core.errors import SheetRefreshError
+from bot.core.errors import ChannelNameClash, SheetRefreshError
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_tiling import run_bounded_image_work, schedule_tiling
 
@@ -51,6 +51,19 @@ actions_bp = Blueprint("actions", __name__, url_prefix="/api")
 
 
 _ERROR_SLUG = re.compile(r"\A[a-z][a-z0-9_]{0,63}\Z")
+
+
+def _channel_clash_mode(body):
+    """Create/rename's on_channel_clash from the request: ask first (409
+    channel_name_clash), or use the -N name once the user has accepted."""
+    return "suffix" if body.get("accept_channel_suffix") is True else "ask"
+
+
+def _channel_clash_response(exc):
+    """409 telling the dashboard which channel name is taken and the -N name it
+    would use, so it can ask Accept/Cancel and resend with accept_channel_suffix."""
+    return jsonify({"error": "channel_name_clash", "channel": exc.channel_name,
+                    "suggested": exc.suggested}), 409
 
 
 def _error_slug(exc):
@@ -781,7 +794,10 @@ async def rename_puzzle(puzzle_id):
 
         warning = None
         try:
-            await cog.service.rename_puzzle(guild, hunt_obj, puzzle, new_name)
+            await cog.service.rename_puzzle(guild, hunt_obj, puzzle, new_name,
+                                            on_channel_clash=_channel_clash_mode(body))
+        except ChannelNameClash as exc:
+            return _channel_clash_response(exc)
         except SheetRefreshError as exc:
             warning = str(exc)
 
@@ -2750,7 +2766,10 @@ async def create_puzzle(uid):
             puzzle = await cog.service.create_puzzle(
                 guild, hunt_obj, target_group, name,
                 notifier=DiscordNotifier(bot_app().bot),
+                on_channel_clash=_channel_clash_mode(body),
             )
+    except ChannelNameClash as exc:
+        return _channel_clash_response(exc)
     except RuntimeError as exc:
         return jsonify({"error": _error_slug(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
@@ -3717,7 +3736,10 @@ async def create_puzzle_from_region(canvas_id, region_id):
             puzzle = await cog.service.create_puzzle(
                 guild, hunt_obj, target_group, name,
                 notifier=DiscordNotifier(bot_app().bot),
+                on_channel_clash=_channel_clash_mode(body),
             )
+    except ChannelNameClash as exc:
+        return _channel_clash_response(exc)
     except RuntimeError as exc:
         return jsonify({"error": _error_slug(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
