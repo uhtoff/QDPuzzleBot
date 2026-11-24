@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parseOrigin, wsUrl, bySheetPath, messagesPath, safeAvatarUrl } from "../src/lib/origin.js";
+import { parseOrigin, wsUrl, bySheetPath, messagesPath, safeAvatarUrl, huntUnreadPath } from "../src/lib/origin.js";
 
 describe("origin helpers", () => {
+  it("huntUnreadPath encodes the hunt uid", () => {
+    expect(huntUnreadPath("a b/c")).toBe("/api/hunts/a%20b%2Fc/unread");
+  });
   it("accepts bare https origins only", () => {
     expect(parseOrigin("https://puzzbot.com")).toBe("https://puzzbot.com");
     expect(parseOrigin(" https://puzzbot.com/ ")).toBe("https://puzzbot.com");
