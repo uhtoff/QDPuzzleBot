@@ -528,13 +528,15 @@ def tidy_order(category, puzzle_channel_ids, solved_channel_ids, pinned_channel_
     """The correct order of a divider category's text channels, or None if
     the category has no divider (split categories need no tidying):
 
-        pinned (the round's meta target) → non-puzzle channels (a group's or
-        the hunt's general chat) → unsolved puzzles → divider → solved puzzles
+        pinned (a round's meta target, else the group's / hunt's general
+        channel) → other non-puzzle channels → unsolved puzzles → divider →
+        solved puzzles
 
-    Each group keeps its current relative order. The target is pinned on
-    top only while unsolved; once solved it heads the solved block, directly
-    under the divider — where a live solve puts it (_apply_solved_move moves
-    a solved channel to divider + 1, with no target exemption)."""
+    Each group keeps its current relative order. A pinned meta target stays
+    on top only while unsolved; once solved it heads the solved block,
+    directly under the divider — where a live solve puts it
+    (_apply_solved_move moves a solved channel to divider + 1, with no target
+    exemption)."""
     channels = sorted(category.text_channels, key=_sibling_order)
     divider = next((ch for ch in channels if ch.name == SOLVE_DIVIDER), None)
     if divider is None:

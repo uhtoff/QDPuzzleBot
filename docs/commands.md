@@ -246,7 +246,7 @@ Run in a puzzle channel — except `!clue`, which also works elsewhere (see its 
 | `!move_to_top` | Move to the top of the category's unsolved section. |
 | `!move_to_bottom` | Move to the bottom of the unsolved section. |
 | `!move_to_solved` | Move into the solved section (mini-puzzle threads are archived). |
-| `!tidy_category` | Re-sort the whole category: unsolved meta target, general chat, unsolved puzzles, divider, then solved puzzles (a solved meta target first). Run in any channel of the category; no-op for split categories. |
+| `!tidy_category` | Re-sort the whole category: general channel (or an unsolved meta target), other non-puzzle channels, unsolved puzzles, divider, then solved puzzles (a solved meta target first). Run in any channel of the category; no-op for split categories. |
 
 ## Archiving
 
