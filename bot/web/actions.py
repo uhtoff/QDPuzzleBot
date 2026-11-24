@@ -66,6 +66,41 @@ def _channel_clash_response(exc):
                     "suggested": exc.suggested}), 409
 
 
+async def _create_puzzle_or_error(cog, guild, hunt_obj, target_group, name, body, where):
+    """The web create-puzzle step shared by the board's create and the canvas's
+    create-from-region: duplicate check + create under hunt_create_lock, with
+    every failure mapped to its response. Returns ``(puzzle, None)`` on success,
+    ``(None, response)`` otherwise. (!puzzle does the same steps but prompts in
+    Discord outside the lock, so it keeps its own copy.)
+
+    The lock serializes check+create per hunt: create_puzzle takes none itself
+    (bot/core is lock-free by convention) and awaits Sheets and Discord for
+    seconds, so a double-submit (or two creators) would otherwise both pass the
+    duplicate check and each create a same-named puzzle."""
+    from bot.core.notifier import DiscordNotifier
+    from bot.store import PuzzleJsonDb
+    try:
+        async with hunt_create_lock(hunt_obj.id):
+            if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt_obj.id):
+                return None, (jsonify({"error": "duplicate_name"}), 409)
+            puzzle = await cog.service.create_puzzle(
+                guild, hunt_obj, target_group, name,
+                notifier=DiscordNotifier(bot_app().bot),
+                on_channel_clash=_channel_clash_mode(body),
+            )
+    except ChannelNameClash as exc:
+        return None, _channel_clash_response(exc)
+    except RuntimeError as exc:
+        return None, (jsonify({"error": _error_slug(exc)}), 400)
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return None, _discord_error_response(exc)
+    except HttpError:
+        # The sheet is made before the channel: a failure creates nothing.
+        logger.exception("%s: sheet creation failed in hunt %s", where, hunt_obj.id)
+        return None, (jsonify({"error": "sheet_create_failed"}), 502)
+    return puzzle, None
+
+
 def _error_slug(exc):
     """The client-safe rendering of a RuntimeError raised by the service layer.
 
@@ -2749,35 +2784,18 @@ async def create_puzzle(uid):
     if not name:
         return jsonify({"error": "empty_name"}), 400
 
-    from bot.store import PuzzleJsonDb, TagGroupJsonDb
+    from bot.store import TagGroupJsonDb
 
     target_group = None
     if group_code:
         target_group = TagGroupJsonDb.get_by_attr(group_code=group_code)
         if target_group is None or target_group.hunt_id != hunt_obj.id:
             return jsonify({"error": "bad_group_code"}), 400
-    try:
-        from bot.core.notifier import DiscordNotifier
-        # Serialize check+create per hunt: a double-submit (or two creators) must
-        # not both pass the duplicate check and each create a same-named puzzle.
-        async with hunt_create_lock(hunt_obj.id):
-            if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt_obj.id):
-                return jsonify({"error": "duplicate_name"}), 409
-            puzzle = await cog.service.create_puzzle(
-                guild, hunt_obj, target_group, name,
-                notifier=DiscordNotifier(bot_app().bot),
-                on_channel_clash=_channel_clash_mode(body),
-            )
-    except ChannelNameClash as exc:
-        return _channel_clash_response(exc)
-    except RuntimeError as exc:
-        return jsonify({"error": _error_slug(exc)}), 400
-    except (discord.RateLimited, discord.HTTPException) as exc:
-        return _discord_error_response(exc)
-    except HttpError:
-        # The sheet is made before the channel: a failure creates nothing.
-        logger.exception("create_puzzle: sheet creation failed in hunt %s", uid)
-        return jsonify({"error": "sheet_create_failed"}), 502
+    puzzle, failed = await _create_puzzle_or_error(
+        cog, guild, hunt_obj, target_group, name, body, "create_puzzle")
+    if failed is not None:
+        return failed
+    assert puzzle is not None  # no failure response means the puzzle was made
     await _audit("create_puzzle", puzzle_id=puzzle.id, hunt_uid=uid, detail=name)
     # Best-effort: keep the Unassigned Puzzles tab in sync (a no-meta create adds one).
     asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
@@ -3686,7 +3704,7 @@ async def create_puzzle_from_region(canvas_id, region_id):
     """
     from bot.core import canvas as canvas_service
     from bot.core.canvas_shape import ShapeRejected
-    from bot.store import CanvasRegionJsonDb, HuntJsonDb, PuzzleJsonDb, TagGroupJsonDb
+    from bot.store import CanvasRegionJsonDb, HuntJsonDb, TagGroupJsonDb
     ctx, canvas_row, err = await _canvas_ctx(canvas_id)
     if err:
         return err
@@ -3728,27 +3746,11 @@ async def create_puzzle_from_region(canvas_id, region_id):
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
     guild = bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
-    try:
-        from bot.core.notifier import DiscordNotifier
-        async with hunt_create_lock(hunt_obj.id):
-            if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt_obj.id):
-                return jsonify({"error": "duplicate_name"}), 409
-            puzzle = await cog.service.create_puzzle(
-                guild, hunt_obj, target_group, name,
-                notifier=DiscordNotifier(bot_app().bot),
-                on_channel_clash=_channel_clash_mode(body),
-            )
-    except ChannelNameClash as exc:
-        return _channel_clash_response(exc)
-    except RuntimeError as exc:
-        return jsonify({"error": _error_slug(exc)}), 400
-    except (discord.RateLimited, discord.HTTPException) as exc:
-        return _discord_error_response(exc)
-    except HttpError:
-        # The sheet is made before the channel: a failure creates nothing.
-        logger.exception("create_puzzle_from_region: sheet creation failed in hunt %s",
-                         hunt_obj.id)
-        return jsonify({"error": "sheet_create_failed"}), 502
+    puzzle, failed = await _create_puzzle_or_error(
+        cog, guild, hunt_obj, target_group, name, body, "create_puzzle_from_region")
+    if failed is not None:
+        return failed
+    assert puzzle is not None  # no failure response means the puzzle was made
 
     # Link only after the puzzle really exists: a failed create must leave the
     # region exactly as it was, not pointing at a puzzle that was never made.
