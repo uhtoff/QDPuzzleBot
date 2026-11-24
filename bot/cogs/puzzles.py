@@ -1534,6 +1534,46 @@ class Puzzles(commands.Cog):
         await self._apply_solved_move(self.get_guild(ctx), channel)
         await ctx.send(":white_check_mark: Channel moved to solved")
 
+    @commands.hybrid_command(description="Re-sort this category: unsolved above the solved divider, solved below (organisers only)",)
+    @is_organiser()
+    async def tidy_category(self, ctx):
+        """*Re-sort this category's channels around the solved divider.*
+
+        Usage: `!tidy_category`
+        Example: `!tidy_category`
+        Run in any channel of the category. Puts an unsolved meta target first,
+        then general chat, then unsolved puzzles, the divider, and solved
+        puzzles (a solved meta target heading them); each block keeps its
+        order. Organisers/admins only."""
+        channel = ctx.channel
+        if isinstance(channel, discord.Thread):
+            channel = channel.parent
+        category = getattr(channel, "category", None)
+        if category is None:
+            await ctx.send(":information_source: This channel isn't in a category.")
+            return
+        guild = ctx.guild
+        if guild is None:
+            return
+        puzzles = PuzzleJsonDb.get_all(guild.id)
+        puzzle_ids = {p.channel_id for p in puzzles if p.channel_id}
+        solved_ids = {p.channel_id for p in puzzles if p.channel_id and p.solved}
+        pinned = None
+        tag_group = self._tag_group_for_channel(channel)
+        if tag_group is not None and tag_group.has_target:
+            target = PuzzleJsonDb.get_by_attr(id=tag_group.target_puzzle_id)
+            pinned = target.channel_id if target is not None else None
+        moved = await category_layout.tidy_category(
+            guild, category, puzzle_ids, solved_ids, pinned)
+        if moved is None:
+            await ctx.send(":information_source: This category has no solved "
+                           "divider (solved puzzles live in their own category), "
+                           "so there's nothing to tidy.")
+        elif moved == 0:
+            await ctx.send(":white_check_mark: Already in order.")
+        else:
+            await ctx.send(f":white_check_mark: Tidied: {moved} channel(s) moved.")
+
 
     @commands.hybrid_command(description="Show all tags on the puzzle (organisers/admins)",)
     @is_organiser()

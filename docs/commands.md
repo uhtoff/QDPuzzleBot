@@ -43,7 +43,7 @@ reading all of them. Tiers nest — `ORGANISER_ROLES` includes the admin role na
 | **Organisers/admins** | Create groups | `!round` (`!r`, `!mp`, `!metapuzzle`, `!capstone`, `!cs`, `!runaround`, `!ra`, `!group`) |
 | | Rename & delete | `!rename_puzzle` · `!rename_group` · `!delete_puzzle` · `!delete_round` · `!delete_mini` · `!remove_minimeta` · `!remove_sheet` |
 | | Restructure | `!convert_to_meta` · `!convert_to_capstone` · `!convert_to_runaround` · `!convert_to_metapuzzle` · `!convert_to_group` · `!convert_to_puzzle` · `!sync` |
-| | Category layout | `!extract_target_to_category` · `!consolidate_to` · `!backfill_glyphs` · `!absorb_category` · `!move_to_top` · `!move_to_bottom` · `!move_to_solved` |
+| | Category layout | `!extract_target_to_category` · `!consolidate_to` · `!backfill_glyphs` · `!absorb_category` · `!move_to_top` · `!move_to_bottom` · `!move_to_solved` · `!tidy_category` |
 | | Maintenance | `!reconcile` · `!rebuild` · `!rebuild_unassigned` · `!list_tags` · `!media_stats` · `!media_sweep` · `!start_reminders` · `!stop_reminders` |
 | **Admins/mods** | Hunt lifecycle | `!hunt` (`!h`) · `!delete_hunt` · `!use_solved_sheet` · `!sheet_mode` · `!set_hunt_role` · `!hunt_complete` · `!hunt_not_complete` · `!setup_server` · `!post_role_panel` · `!send_invites` · `!invite_player` · `!mod_invite` |
 | | Settings | `!set_login` · `!set_start` · `!set_end` · `!update_settings` · `!show_settings` · `!show_puzzle_settings` |
@@ -246,6 +246,7 @@ Run in a puzzle channel — except `!clue`, which also works elsewhere (see its 
 | `!move_to_top` | Move to the top of the category's unsolved section. |
 | `!move_to_bottom` | Move to the bottom of the unsolved section. |
 | `!move_to_solved` | Move into the solved section (mini-puzzle threads are archived). |
+| `!tidy_category` | Re-sort the whole category: unsolved meta target, general chat, unsolved puzzles, divider, then solved puzzles (a solved meta target first). Run in any channel of the category; no-op for split categories. |
 
 ## Archiving
 

@@ -148,6 +148,7 @@ EXPECTED = [
     ("move_to_bottom", "organiser"),
     ("move_to_solved", "organiser"),
     ("move_to_top", "organiser"),
+    ("tidy_category", "organiser"),
     ("rebuild", "organiser"),
     ("rebuild_unassigned", "organiser"),
     ("reconcile", "organiser"),
