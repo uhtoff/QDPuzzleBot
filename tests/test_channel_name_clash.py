@@ -149,3 +149,117 @@ def test_reserved_channel_ids_covers_puzzles_hunt_general_and_group_chat():
         ids = PuzzleService._reserved_channel_ids(
             MagicMock(), make_hunt(id=1, channel_id=111), puzzles, groups)
     assert {111, 222, 333}.issubset(ids)
+
+
+# ------------------------------------------------------- create / rename modes
+
+from bot.core.errors import ChannelNameClash  # noqa: E402
+from bot.store.hunt_data import HuntData  # noqa: E402
+from tests.conftest import make_puzzle  # noqa: E402
+
+
+def _hunt_obj():
+    h = HuntData()
+    h.id = 10; h.google_sheet_id = "S1"; h.solved_sheet_id = "A1"
+    h.url = None; h.category_id = 900; h.name = "H"; h.channel_id = 111
+    return h
+
+
+def _create_env(cat):
+    gsheet = MagicMock()
+    gsheet.create_puzzle_spreadsheet = AsyncMock()
+    gsheet.compute_insert_index = AsyncMock(return_value=0)
+    bot = MagicMock(); bot.get_cog.return_value = gsheet
+    svc = PuzzleService(bot)
+    guild = MagicMock(); guild.channels = []; guild.categories = [cat]
+    goc = AsyncMock(return_value=(SimpleNamespace(id=222, mention="<#222>", name="x",
+                                                  edit=AsyncMock()), True))
+    return svc, gsheet, guild, goc
+
+
+async def _create(svc, guild, goc, cat, mode):
+    notifier = MagicMock(); notifier.welcome = AsyncMock()
+    with patch.object(ps, "PuzzleJsonDb") as pdb, \
+         patch.object(ps.category_layout, "pick_unsolved_category", AsyncMock(return_value=cat)), \
+         patch.object(ps, "get_or_create_channel", goc), \
+         patch.object(ps, "solve_divider_position", return_value=False):
+        pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
+        await svc.create_puzzle(guild, _hunt_obj(), None, "General",
+                                notifier=notifier, on_channel_clash=mode)
+        return pdb
+
+
+async def test_create_ask_raises_before_any_sheet_or_db_work():
+    cat = _cat(900, ("general", 111))
+    svc, gsheet, guild, goc = _create_env(cat)
+    with pytest.raises(ChannelNameClash) as exc:
+        await _create(svc, guild, goc, cat, "ask")
+    assert (exc.value.channel_name, exc.value.suggested) == ("general", "general-1")
+    gsheet.create_puzzle_spreadsheet.assert_not_awaited()
+    goc.assert_not_awaited()
+
+
+async def test_create_suffix_makes_a_fresh_suffixed_channel():
+    cat = _cat(900, ("general", 111), ("general-1", 112))
+    svc, gsheet, guild, goc = _create_env(cat)
+    await _create(svc, guild, goc, cat, "suffix")
+    assert goc.await_args.kwargs["channel_name"] == "general-2"
+
+
+async def test_create_ask_without_clash_creates_normally():
+    cat = _cat(900, ("tide", 5))
+    svc, gsheet, guild, goc = _create_env(cat)
+    await _create(svc, guild, goc, cat, "ask")
+    assert goc.await_args.kwargs["channel_name"] == "general"
+
+
+async def test_create_adopt_keeps_the_name_for_group_promotion():
+    cat = _cat(900, ("general", 111))
+    svc, gsheet, guild, goc = _create_env(cat)
+    await _create(svc, guild, goc, cat, "adopt")
+    assert goc.await_args.kwargs["channel_name"] == "general"
+
+
+def _rename_env(*names_ids, own_id=50):
+    cat = _cat(900, *names_ids)
+    own = next(ch for ch in cat.text_channels if ch.id == own_id)
+    guild = MagicMock(); guild.get_channel.side_effect = lambda cid: own if cid == own_id else None
+    bot = MagicMock(); bot.get_cog.return_value = None
+    return PuzzleService(bot, notifier=AsyncMock()), guild, own
+
+
+async def test_rename_ask_raises_and_changes_nothing():
+    svc, guild, own = _rename_env(("general", 111), ("tide", 50))
+    puz = make_puzzle(id=70, name="Tide", channel_id=50)
+    puz.channel_name = "tide"
+    with patch.object(ps, "PuzzleJsonDb") as pdb, \
+         patch.object(svc, "safe_rename", new_callable=AsyncMock) as rn:
+        with pytest.raises(ChannelNameClash) as exc:
+            await svc.rename_puzzle(guild, _hunt_obj(), puz, "General", on_channel_clash="ask")
+    assert exc.value.suggested == "general-1"
+    assert (puz.name, puz.channel_name) == ("Tide", "tide")
+    rn.assert_not_awaited(); pdb.commit.assert_not_called()
+
+
+async def test_rename_suffix_renames_channel_to_free_name():
+    svc, guild, own = _rename_env(("general", 111), ("tide", 50))
+    puz = make_puzzle(id=70, name="Tide", channel_id=50)
+    puz.channel_name = "tide"
+    with patch.object(ps, "PuzzleJsonDb"), \
+         patch.object(svc, "safe_rename", new_callable=AsyncMock) as rn:
+        await svc.rename_puzzle(guild, _hunt_obj(), puz, "General", on_channel_clash="suffix")
+    rn.assert_awaited_once_with(own, "general-1")
+    assert (puz.name, puz.channel_name) == ("General", "general-1")
+
+
+async def test_rename_does_not_clash_with_its_own_channel():
+    """'General' -> 'General!' cleans to the same name: the only #general-1 is
+    the puzzle's own channel, so no prompt and the suffix is kept."""
+    svc, guild, own = _rename_env(("general", 111), ("general-1", 50))
+    puz = make_puzzle(id=70, name="General", channel_id=50)
+    puz.channel_name = "general-1"
+    with patch.object(ps, "PuzzleJsonDb"), \
+         patch.object(svc, "safe_rename", new_callable=AsyncMock) as rn:
+        await svc.rename_puzzle(guild, _hunt_obj(), puz, "General!", on_channel_clash="ask")
+    rn.assert_not_awaited()
+    assert puz.channel_name == "general-1"

@@ -42,3 +42,15 @@ class SheetRefreshError(RuntimeError):
         if not parts:
             return "A sheet update failed; the change is saved."
         return " ".join(parts)
+
+
+class ChannelNameClash(Exception):
+    """A puzzle create/rename would give its Discord channel the same name as
+    an existing channel in that category. Raised only in ``on_channel_clash="ask"``
+    mode, BEFORE anything is written, so the caller can ask the user and retry
+    with ``"suffix"`` (the channel then becomes *suggested*)."""
+
+    def __init__(self, channel_name, suggested):
+        self.channel_name = channel_name
+        self.suggested = suggested
+        super().__init__(f"#{channel_name} already exists here; would use #{suggested}")
