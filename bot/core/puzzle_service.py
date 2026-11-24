@@ -921,7 +921,7 @@ class PuzzleService:
                                    RuntimeError("Feeds line write failed"))
 
         self._collect_orphan_channels(
-            guild, hunt, puzzles, report, hunt_category_ids)
+            guild, hunt, puzzles, report, hunt_category_ids, rounds)
         await self._collect_orphan_tabs(hunt, puzzles, report)
         return report
 
@@ -962,13 +962,13 @@ class PuzzleService:
         ids.update(row.category_id for row in HuntCategoryDb.get_for_group(hunt.id))
         return frozenset(cid for cid in ids if cid)
 
-    def _collect_orphan_channels(self, guild, hunt, puzzles, report, category_ids):
-        valid_ids = {p.channel_id for p in puzzles if p.channel_id}
-        # Widening the scan to the hunt's general category (M6) brings the hunt's
-        # OWN channel into range. It is not a puzzle channel, and orphans are what
-        # `!reconcile apply-orphans` deletes.
-        if getattr(hunt, "channel_id", None):
-            valid_ids.add(hunt.channel_id)
+    def _collect_orphan_channels(self, guild, hunt, puzzles, report, category_ids, rounds):
+        # Orphans are what `!reconcile apply-orphans` deletes, so anything in
+        # use is exempt: the SAME set relinking refuses to take (puzzles', the
+        # hunt's general channel, group chat channels). Recomputed here, not
+        # reused from the start of the run: an apply has just linked or created
+        # channels onto `puzzles`.
+        valid_ids = self._reserved_channel_ids(guild, hunt, puzzles, rounds)
         for category in guild.categories:
             if category.id not in category_ids:
                 continue

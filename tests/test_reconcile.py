@@ -1357,3 +1357,25 @@ def test_format_report_names_stray_files_as_never_deleted():
     assert "2 stray files" in text
     assert '"notes"' in text and '"old copy"' in text
     assert "never deleted" in text
+
+
+def test_orphan_scan_spares_a_metaless_groups_chat_channel():
+    """A metaless group's chat channel is no puzzle's and not the hunt's, but it
+    is in use: it must never be reported as an orphan, because apply-orphans
+    deletes what is reported (it shares _reserved_channel_ids with relinking)."""
+    cat = _category(500)
+    chat = SimpleNamespace(id=333, name="odds-and-ends", category=cat,
+                           type=discord.ChannelType.text)
+    stray = SimpleNamespace(id=222, name="stray", category=cat,
+                            type=discord.ChannelType.text)
+    cat.channels = [chat, stray]
+    guild = _guild_with(channels=[chat, stray], categories=[cat])
+    svc = _service()
+    group = SimpleNamespace(id=10, category_id=500, target_puzzle_id=None, has_target=False)
+    with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[]), \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[group]), \
+         patch.object(ps.category_layout, "group_chat_channel",
+                      side_effect=lambda g, grp: chat if grp is group else None):
+        report = asyncio.run(svc.reconcile(guild, _hunt(), apply=False))
+    assert (222, "stray") in report.orphan_channels
+    assert 333 not in [cid for cid, _ in report.orphan_channels]
