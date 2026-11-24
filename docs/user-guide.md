@@ -564,8 +564,9 @@ Options and click **Allow access to Google Sheets**.
 ### Using it
 
 - **Open the panel:** click the extension's toolbar button. Once open (and pinned, in
-  Chrome) it follows your active tab: a puzzle sheet shows its chat, and a tab that isn't a
-  puzzle shows "not a puzzle". A puzzle's hunt page also shows its chat if you opened it from
+  Chrome) it follows your active tab: a puzzle sheet shows its chat, a hunt board on the
+  dashboard shows that hunt's general channel, and any other tab shows "not a puzzle". The
+  general channel's history in the panel starts from when this feature went live. A puzzle's hunt page also shows its chat if you opened it from
   the dashboard (the **Puzzle page** link, or **Open puzzle as a tab group**); pages opened
   from Discord or the sheet, or with ctrl/cmd/middle-click, show "not a puzzle".
   **Firefox:** the toolbar button is the only way to open the sidebar; Firefox never lets

@@ -1,7 +1,7 @@
 import { parseSheetUrl } from "./lib/sheetUrl.js";
 import { createRegistry } from "./lib/registry.js";
-import { cacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
-import { bySheetPath, wsUrl, WS_TICKET_PATH, removesOrigin, SHEETS_ORIGINS } from "./lib/origin.js";
+import { cacheValid, huntCacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
+import { bySheetPath, huntChatPath, parseHuntBoardUrl, wsUrl, WS_TICKET_PATH, removesOrigin, SHEETS_ORIGINS } from "./lib/origin.js";
 import { backoffDelay, reconnectVia, resolveAttempt } from "./lib/backoff.js";
 import { invalidateOnNavigate } from "./lib/tabRefresh.js";
 import { createLookupGen } from "./lib/lookupGen.js";
@@ -241,6 +241,29 @@ async function lookup(tabId, parsed, windowId, page = false) {
   return true;
 }
 
+// A hunt board on the dashboard shows that hunt's general channel. Same contract as
+// lookup(). The entry has no sheet, id or sheet_mode, so the sheet-only paths
+// (close solved, files-mode tab reuse) never match it.
+async function lookupHunt(tabId, uid, windowId) {
+  const token = lookupGen.begin(tabId);
+  if (huntCacheValid(registry.get(tabId), uid)) {
+    if (registry.setWindow(tabId, windowId)) persist();
+    return true;
+  }
+  const res = await apiGet(huntChatPath(uid));
+  if (!lookupGen.isCurrent(tabId, token)) return false;
+  registry.delete(tabId);
+  failedFor.delete(tabId);
+  if (res.authRequired) failures.set(tabId, "auth");
+  else if (res.error) failures.set(tabId, res.status === 404 ? "notfound" : "error");
+  else {
+    failures.delete(tabId);
+    registry.set(tabId, { ...res.puzzle, bridge_enabled: res.bridge_enabled, windowId });
+  }
+  persist();
+  return true;
+}
+
 // First channel mention in a message (content or embeds), to trigger a refetch on a miss.
 function wantedChannel(message) {
   const text = [message?.content, ...(message?.embeds ?? []).flatMap((e) => [e?.title, e?.description])].join(" ");
@@ -277,9 +300,13 @@ async function refreshTab(tab, only) {
   if (invalidateOnNavigate({ tab, registry, failures, failedFor, lookupGen, ports, post: safePost })) persist();
   const sheet = parseSheetUrl(tab.url ?? "");
   // A hunt page the extension opened shows its puzzle's chat. Its URL is unreadable while it
-  // is on the hunt site; a readable non-sheet URL (the dashboard, say) is "not a puzzle".
+  // is on the hunt site. A dashboard hunt board shows the hunt's general channel; any
+  // other readable non-sheet URL is "not a puzzle".
   const pageSheet = !sheet && !tab.url && !tab.pendingUrl ? pageTabs.get(tabId) : null;
-  if (!sheet && !pageSheet) {
+  const huntUid = !sheet && !pageSheet ? parseHuntBoardUrl(tab.url ?? "", await getOrigin()) : null;
+  if (huntUid) {
+    if (!(await lookupHunt(tabId, huntUid, tab.windowId))) return; // superseded
+  } else if (!sheet && !pageSheet) {
     lookupGen.begin(tabId); // invalidate any in-flight lookup for the old URL
     registry.delete(tabId);
     failures.delete(tabId);
