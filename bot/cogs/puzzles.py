@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 # dashboard write serializes against the matching bang-command (see M4).
 from bot.core.locks import (_PUZZLE_LOCKS, puzzles_lock, convert_lock_ids,
                             hunt_create_lock, hunt_sheet_lock)
-from bot.core.errors import SheetRefreshError
+from bot.core.errors import ChannelNameClash, SheetRefreshError
 from bot.core.puzzle_service import TYPE_DEFAULTS, GROUP_TYPES
 from bot.cogs.ui import ConfirmView
 
@@ -1035,30 +1035,45 @@ class Puzzles(commands.Cog):
         # puzzle lock -> hunt_create_lock -> layout_lock/rollup_lock — with no
         # path taking a puzzle lock while holding hunt_create_lock, so it adds
         # no cycle (see hunt_create_lock's docstring in bot/core/locks.py).
-        async with hunt_create_lock(hunt.id):
-            if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, hunt.id):
-                return await ctx.send(
-                    f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt or "
-                    "will lead to a duplicate channel name, please use a different name"
-                )
-            if await self.check_available_space(ctx, 1) is False:
-                return await ctx.send(
-                    ":x: There is no free channel to create this puzzle, please inform "
-                    "the moderators."
-                )
-            try:
-                await self.service.create_puzzle(
-                    guild, hunt, round_data, puzzle_name,
-                    is_meta=False, notifier=DiscordNotifier(self.bot),
-                )
-            except RuntimeError:
-                return await ctx.send(":x: Failed to create puzzle (server full?).")
-            except HttpError:
-                # The sheet is made before the channel, so nothing was created.
-                logger.exception("!puzzle: sheet creation failed for %s", puzzle_name)
-                return await ctx.send(
-                    ":x: Couldn't create the puzzle's Google sheet, so the puzzle was "
-                    "not created. Please try again shortly.")
+        #
+        # A channel-name clash is asked about OUTSIDE the lock (a 30s prompt must
+        # not block every other create in the hunt): the first pass asks, and
+        # on Accept a second pass re-runs the checks and creates with -N.
+        mode = "ask"
+        while True:
+            clash = None
+            async with hunt_create_lock(hunt.id):
+                if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, hunt.id):
+                    return await ctx.send(
+                        f":exclamation: Puzzle **{puzzle_name}** already exists in this "
+                        "hunt, please use a different name"
+                    )
+                if await self.check_available_space(ctx, 1) is False:
+                    return await ctx.send(
+                        ":x: There is no free channel to create this puzzle, please inform "
+                        "the moderators."
+                    )
+                try:
+                    await self.service.create_puzzle(
+                        guild, hunt, round_data, puzzle_name,
+                        is_meta=False, notifier=DiscordNotifier(self.bot),
+                        on_channel_clash=mode,
+                    )
+                except ChannelNameClash as exc:
+                    clash = exc
+                except RuntimeError:
+                    return await ctx.send(":x: Failed to create puzzle (server full?).")
+                except HttpError:
+                    # The sheet is made before the channel, so nothing was created.
+                    logger.exception("!puzzle: sheet creation failed for %s", puzzle_name)
+                    return await ctx.send(
+                        ":x: Couldn't create the puzzle's Google sheet, so the puzzle was "
+                        "not created. Please try again shortly.")
+            if clash is None:
+                break
+            if not await self._confirm_channel_suffix(ctx, clash, "created"):
+                return
+            mode = "suffix"
         asyncio.create_task(self.service.refresh_unassigned_safe(hunt))
 
     # --- legacy create twins removed (Phase 5 strangle) ---
@@ -3744,11 +3759,16 @@ class Puzzles(commands.Cog):
             assert hunt is not None  # puzzle channels always resolve their hunt
             if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, hunt.id, exclude_puzzle_id=puzzle.id):
                 return await ctx.send(
-                    f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt or will lead to a duplicate channel name, please use a different name")
+                    f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt, please use a different name")
             try:
-                await self.service.rename_puzzle(
-                    ctx.guild, hunt, puzzle, puzzle_name
-                )
+                try:
+                    await self.service.rename_puzzle(
+                        ctx.guild, hunt, puzzle, puzzle_name, on_channel_clash="ask")
+                except ChannelNameClash as clash:
+                    if not await self._confirm_channel_suffix(ctx, clash, "renamed"):
+                        return
+                    await self.service.rename_puzzle(
+                        ctx.guild, hunt, puzzle, puzzle_name, on_channel_clash="suffix")
             except SheetRefreshError as exc:
                 await self._warn_stale_sheets(ctx, exc)
                 return
@@ -4779,6 +4799,24 @@ class Puzzles(commands.Cog):
         await view.wait()
         if view.value is None:
             await ctx.send(timeout_msg)
+        return view.value is True
+
+    async def _confirm_channel_suffix(self, ctx, clash, verb):
+        """Ask whether to go ahead with a -N channel name because the puzzle's
+        channel name is already taken in its category. True only on Accept;
+        on Cancel/timeout says nothing was *verb* ("created"/"renamed")."""
+        view = ConfirmView(ctx.author.id, confirm_label="Accept")
+        embed = discord.Embed(
+            title="Channel name already in use",
+            description=(
+                f"This would lead to two channels named **#{clash.channel_name}** "
+                f"here. The puzzle's channel will be named **#{clash.suggested}** "
+                "to avoid confusion."),
+            color=discord.Color.orange())
+        view.message = await ctx.send(embed=embed, view=view)
+        await view.wait()
+        if view.value is not True:
+            await ctx.send(f":x: Cancelled. Nothing was {verb}.")
         return view.value is True
 
     async def _confirm_reuse_role(self, ctx, role_name):
