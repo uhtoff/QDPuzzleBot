@@ -908,13 +908,6 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         rows = self._fetch_all(f"SELECT id, name FROM `{self.TABLE_NAME}` WHERE id IN ({placeholders})", tuple(ids))
         return {row["id"]: row["name"] for row in rows}
 
-    def get_all(self, guild_id, hunt_id="*") -> List[PuzzleData]:
-        """Retrieve all puzzles from database"""
-        rows = self._fetch_all("SELECT puzzles.* FROM puzzles "
-                       "LEFT JOIN hunts ON puzzles.hunt_id = hunts.id "
-                       "WHERE hunts.guild_id = %s", (guild_id,))
-        return PuzzleData.sort_by_puzzle_start(self.construct_puzzles(rows))
-
     def get_all_from_hunt(self, hunt_id) -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
         rows = self._fetch_all("SELECT puzzles.* FROM puzzles "
