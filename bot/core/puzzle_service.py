@@ -2995,6 +2995,11 @@ class PuzzleService:
                 logger.exception("rename_puzzle: voice channel rename failed for %s", puzzle.id)
 
         PuzzleJsonDb.commit(puzzle)
+        # The Unassigned Feeders tab shows the name; it only reconciles when
+        # refreshed. Scheduled straight after the commit so a sheet failure below
+        # cannot skip it. Minis are never on the tab.
+        if puzzle.parent_puzzle_id is None:
+            asyncio.create_task(self.refresh_unassigned_safe(hunt))
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:

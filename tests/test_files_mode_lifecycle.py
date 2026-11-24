@@ -303,6 +303,9 @@ def _svc_with(cog):
     svc.refresh_target = AsyncMock()
     svc.refresh_minimeta = AsyncMock()
     svc.refresh_header_links = AsyncMock()
+    # The Unassigned Feeders tab lives in the hunt's own sheet, not the puzzle's
+    # file; these tests pin per-file writes (covered in its own test files).
+    svc.refresh_unassigned_safe = AsyncMock()
     return svc
 
 
