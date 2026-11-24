@@ -50,6 +50,32 @@ def clean_channel_name(name):
     return name.strip("-")[:100].rstrip("-")
 
 
+def text_channel_named(category, name, exclude_id=None):
+    """The text channel called *name* in *category* (other than *exclude_id*),
+    or None. Discord allows duplicate names; puzzbot does not want them, because
+    get_or_create_channel reuses by name and a puzzle must own its channel."""
+    if category is None:
+        return None
+    for ch in getattr(category, "text_channels", []):
+        if ch.name == name and ch.id != exclude_id:
+            return ch
+    return None
+
+
+def free_suffixed_name(category, name):
+    """*name* with the lowest ``-N`` suffix (N >= 1) not already used by a text
+    channel in *category*, capped at Discord's 100 chars (the base is trimmed,
+    never the suffix)."""
+    taken = {ch.name for ch in getattr(category, "text_channels", [])} if category else set()
+    n = 1
+    while True:
+        suffix = f"-{n}"
+        candidate = name[:100 - len(suffix)] + suffix
+        if candidate not in taken:
+            return candidate
+        n += 1
+
+
 def clean_category_name(name):
     """Lightly clean *name* for a Discord category, which Discord stores
     verbatim (only force-uppercased for display). Collapse internal whitespace

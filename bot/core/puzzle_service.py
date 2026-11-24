@@ -12,6 +12,7 @@ import datetime
 import functools
 import inspect
 import logging
+import re
 from typing import AbstractSet, Any, Callable
 
 import discord
@@ -32,13 +33,13 @@ from bot.core.sheet_tables import (
 )
 from bot.utils import config, urls
 from bot.core.discord_channels import (
-    clean_channel_name, clean_category_name, get_or_create_channel, solve_divider_position,
-    MAX_CHANNELS_PER_GUILD, MAX_CATEGORIES,
+    clean_channel_name, clean_category_name, free_suffixed_name, get_or_create_channel,
+    solve_divider_position, text_channel_named, MAX_CHANNELS_PER_GUILD, MAX_CATEGORIES,
     SOLVE_CATEGORY, SOLVE_DIVIDER,
 )
 from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
 from bot.core.sheet_location import Link, puzzle_location
-from bot.core.target_glyph import marked_name
+from bot.core.target_glyph import GLYPHS, PRIMARY_MARKER, marked_name
 from bot.core.target_extract import select_extract_puzzles
 
 logger = logging.getLogger(__name__)
@@ -274,6 +275,34 @@ def feeds_targets(puzzle) -> list[PuzzleData]:
     return _feeds_targets_from(fed, puzzle.parent_puzzle_id, puzzle.id)
 
 
+_GLYPH_CHARS = frozenset("".join(GLYPHS.values()) + PRIMARY_MARKER)
+_CLASH_SUFFIX = re.compile(r"-(\d+)$")
+
+
+def _kept_clash_suffix(stored, clean):
+    """The ``-N`` clash suffix on *stored* (a puzzle's current channel name) when
+    it is exactly [glyph prefix] + *clean* + ``-N``; else "". Clean names that
+    end in digits ("level-1") are not mistaken for a suffix: the part before
+    the ``-N`` must still be the clean name."""
+    if not stored or not clean:
+        return ""
+    m = _CLASH_SUFFIX.search(stored)
+    if m is None:
+        return ""
+    head = stored[:m.start()]
+    if head == clean:
+        return m.group(0)
+    if head.endswith("-" + clean):
+        prefix = head[:-len(clean) - 1]
+        if prefix and all(ch in _GLYPH_CHARS for ch in prefix):
+            return m.group(0)
+    return ""
+
+
+def _with_suffix(name, suffix):
+    return name[:100 - len(suffix)] + suffix if suffix else name
+
+
 class PuzzleService:
     def __init__(self, bot, notifier=None):
         self.bot = bot
@@ -401,14 +430,17 @@ class PuzzleService:
 
     def desired_channel_name(self, guild, hunt, puzzle, group=None):
         """Canonical Discord channel name: ⭐ (if this is a category's OWN target) +
-        kind glyph + clean name; bare clean name for a feeder."""
+        kind glyph + clean name; bare clean name for a feeder. A ``-N`` clash
+        suffix already on the puzzle's stored channel_name is kept (see
+        _kept_clash_suffix), so glyph refreshes and reconcile never strip it."""
         kind = self._target_kind(hunt, puzzle, group=group)
         clean = clean_channel_name(puzzle.name)
+        suffix = _kept_clash_suffix(getattr(puzzle, "channel_name", None), clean)
         if kind is None:
-            return clean
+            return _with_suffix(clean, suffix)
         owning = group if group is not None else TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
         is_primary = owning is not None and category_layout.primary_category(guild, owning) is not None
-        return marked_name(kind, clean, is_primary)
+        return _with_suffix(marked_name(kind, clean, is_primary), suffix)
 
     def _desired_target_channel_name(self, guild, hunt, group):
         """Glyphed channel name a group's target puzzle should carry (no puzzle
@@ -475,14 +507,18 @@ class PuzzleService:
         # this service already calls it in three other places.
         return category_layout._home_category(guild, home_group), home_group
 
-    async def _reconcile_channel(self, guild, hunt, puzzle, report, *, apply, hunt_category_ids=()):
+    async def _reconcile_channel(self, guild, hunt, puzzle, report, *, apply, hunt_category_ids=(),
+                                 reserved_channel_ids=frozenset()):
         """Make the puzzle's Discord channel match the DB. Returns the list of
         actions taken/needed. Resolution order: keep+fix existing > relink named >
         create. Welcome is reposted ONLY when a brand-new channel is created.
 
         ``hunt_category_ids`` scopes step 2's relink search to this hunt's own
         round/group categories, so a same-named channel belonging to a different
-        hunt (or a different puzzle) in the same guild can't be hijacked."""
+        hunt (or a different puzzle) in the same guild can't be hijacked.
+        ``reserved_channel_ids`` (channels already in use: other puzzles', the
+        hunt's general channel, group chat channels) are never relinked, and a
+        recreate never lands on one of them by name — it takes a ``-N`` name."""
         # Mini-puzzles live as threads inside their minimeta's channel (see
         # create_mini) and are deliberately untagged. Reconcile has no
         # thread-creation path, so a mini here would be wrongly promoted to a
@@ -512,7 +548,9 @@ class PuzzleService:
         # own categories: relink + move. Scoped to hunt_category_ids so a
         # same-named channel in another hunt/round can't be adopted.
         existing = discord.utils.get(
-            (c for c in guild.channels if getattr(c.category, "id", None) in hunt_category_ids),
+            (c for c in guild.channels
+             if getattr(c.category, "id", None) in hunt_category_ids
+             and c.id not in reserved_channel_ids),
             name=want_name,
         )
         if existing is not None:
@@ -528,6 +566,10 @@ class PuzzleService:
             return actions
 
         # 3. Nothing found: create + welcome.
+        if text_channel_named(category, want_name) is not None:
+            # The name is taken by a channel in use (step 2 skipped it): a fresh
+            # channel must not be resolved to it by name — take a -N name.
+            want_name = free_suffixed_name(category, want_name)
         actions.append(ReconcileAction("channel_create", puzzle.name, "no channel found"))
         if apply:
             text_channel, created = await get_or_create_channel(
@@ -802,6 +844,7 @@ class PuzzleService:
         puzzles = PuzzleJsonDb.get_all_from_hunt(hunt.id)
         rounds = TagGroupJsonDb.get_all(hunt.id)
         hunt_category_ids = self._hunt_category_ids(hunt, rounds)
+        reserved_channel_ids = self._reserved_channel_ids(guild, hunt, puzzles, rounds)
 
         files = getattr(hunt, "sheet_mode", "tabs") == "files"
         files_check = None
@@ -823,7 +866,8 @@ class PuzzleService:
             try:
                 for action in await self._reconcile_channel(
                         guild, hunt, puzzle, report, apply=apply,
-                        hunt_category_ids=hunt_category_ids):
+                        hunt_category_ids=hunt_category_ids,
+                        reserved_channel_ids=reserved_channel_ids):
                     report.actions.append(action)
                 if files:
                     if files_check is not None:
@@ -880,6 +924,26 @@ class PuzzleService:
             guild, hunt, puzzles, report, hunt_category_ids)
         await self._collect_orphan_tabs(hunt, puzzles, report)
         return report
+
+    @staticmethod
+    def _reserved_channel_ids(guild, hunt, puzzles, rounds):
+        """Channels reconcile must never hand to a puzzle: every puzzle's own
+        channel, the hunt's general channel, and each group's chat channel (a
+        metaless group's channel in its category, or a channel-home group's
+        channel)."""
+        ids = {p.channel_id for p in puzzles if p.channel_id}
+        if getattr(hunt, "channel_id", None):
+            ids.add(hunt.channel_id)
+        for group in rounds:
+            # Only a metaless group has a chat channel (group_chat_channel
+            # returns None for a targeted one anyway).
+            if guild is not None and getattr(group, "has_target", True) is False:
+                chat = category_layout.group_chat_channel(guild, group)
+                if chat is not None:
+                    ids.add(chat.id)
+            if getattr(group, "category_id", None):
+                ids.add(group.category_id)   # a channel-home group's id IS its channel
+        return frozenset(ids)
 
     @staticmethod
     def _hunt_category_ids(hunt, rounds):
