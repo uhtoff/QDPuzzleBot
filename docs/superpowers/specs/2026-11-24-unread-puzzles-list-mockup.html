@@ -1,0 +1,407 @@
+<title>Unread Puzzles List</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: a short brief, then one fake browser window (tab strip, sheet, side panel) so peeking vs. the active tab is visible. */
+:root {
+  --bg: #f3f5f7;
+  --fg: #1b2228;
+  --dim: #66727d;
+  --line: #1b222826;
+  --panel: #ffffff;
+  --chrome: #e6eaee;
+  --row-hover: #1b22280d;
+  --accent: #0f7b7f;
+  --accent-ink: #ffffff;
+  --accent-soft: #0f7b7f1f;
+  --peek: #8a5a00;
+  --peek-soft: #f2b53a33;
+  --ok: #1e7a34;
+  --ok-ink: #ffffff;
+  --ok-soft: #2e9e4a38;
+  --display: "Space Grotesk", system-ui, sans-serif;
+  --ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14181c; --fg: #e4e9ed; --dim: #8e9aa5; --line: #e4e9ed26; --panel: #1d2329; --chrome: #262d34;
+    --row-hover: #e4e9ed12; --accent: #4cc2c4; --accent-ink: #0c1d1e; --accent-soft: #4cc2c426;
+    --peek: #f2c466; --peek-soft: #f2b53a26; --ok: #63d07f; --ok-ink: #0b2412; --ok-soft: #3fb95f40;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14181c; --fg: #e4e9ed; --dim: #8e9aa5; --line: #e4e9ed26; --panel: #1d2329; --chrome: #262d34;
+  --row-hover: #e4e9ed12; --accent: #4cc2c4; --accent-ink: #0c1d1e; --accent-soft: #4cc2c426;
+  --peek: #f2c466; --peek-soft: #f2b53a26; --ok: #63d07f; --ok-ink: #0b2412; --ok-soft: #3fb95f40;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg); font: 14px/1.5 var(--ui);
+  padding-block: 28px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+h1 { font: 600 26px/1.2 var(--display); margin: 0; text-wrap: balance; }
+h2 { font: 600 15px/1.3 var(--display); margin: 0; }
+.lede { max-width: 65ch; margin: 0; color: var(--dim); }
+.intro { display: flex; flex-direction: column; gap: 8px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.btn {
+  font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--accent);
+  background: var(--accent); color: var(--accent-ink); cursor: pointer;
+}
+.btn.quiet { background: none; color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hint { color: var(--dim); font-size: 13px; }
+kbd { font: 12px var(--ui); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--panel); }
+
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; max-width: 70ch; }
+.keys dt { white-space: nowrap; }
+.keys dd { margin: 0; color: var(--dim); }
+
+/* ---- fake browser ---- */
+.browser { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--chrome); }
+.tabs { display: flex; gap: 2px; padding: 6px 6px 0; overflow-x: auto; }
+.tab { font: 12px var(--ui); color: var(--dim); background: none; border: 0; border-radius: 6px 6px 0 0; padding: 6px 12px; cursor: pointer; white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.tab.active { background: var(--panel); color: var(--fg); }
+.b-body { display: flex; flex-wrap: wrap; background: var(--panel); }
+.sheet {
+  flex: 1 1 220px; min-width: 0; min-height: 120px; padding: 14px; color: var(--dim); font-size: 13px;
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 88px 24px; background-position: -1px 47px;
+}
+.sheet strong { color: var(--fg); display: block; font-size: 15px; }
+
+/* ---- the side panel: mirrors extension/src/panel.css (13px system-ui, hairlines) ---- */
+.panel {
+  font: 13px/1.4 var(--ui); background: var(--panel); border-left: 1px solid var(--line);
+  flex: 0 1 350px; min-width: min(350px, 100%); height: 620px; display: flex; flex-direction: column; overflow: hidden;
+}
+.panel button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+.p-head { padding: 8px 10px; font-weight: 600; border-bottom: 1px solid var(--line); display: flex; gap: 6px; align-items: baseline; }
+.round { font-weight: 400; color: var(--dim); font-size: 11px; }
+
+.peek { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; background: var(--peek-soft); border-bottom: 1px solid var(--line); }
+.peek .why { flex: 1 1 100%; font-size: 11px; color: var(--peek); }
+.peek button { border: 1px solid var(--line); border-radius: 4px; padding: 3px 9px; background: var(--panel); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.peek button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; flex: none; }
+.peek button .badge { margin-left: 5px; }
+
+.unread { border-bottom: 1px solid var(--line); background: var(--accent-soft); }
+.u-bar { display: flex; align-items: center; gap: 4px; padding: 2px 4px 2px 0; }
+.u-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 5px 10px; text-align: left; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); }
+.u-toggle .chev { width: 8px; display: inline-block; transition: transform .12s; }
+.unread.open .u-toggle .chev { transform: rotate(90deg); }
+.u-toggle b { color: var(--fg); font-weight: 600; }
+.u-toggle.fresh b { animation: pulse 1.2s ease-out; }
+.u-pager { display: flex; align-items: center; gap: 2px; font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.u-pager button { width: 22px; height: 22px; border-radius: 4px; }
+.u-pager button:hover:not(:disabled) { background: var(--row-hover); }
+.u-pager button:disabled { opacity: .3; cursor: default; }
+.u-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 4px 4px 6px; border-top: 1px solid var(--line); }
+.u-mark { font-size: 11px; color: var(--accent); padding: 3px 6px; border-radius: 4px; }
+.panel .u-mark { color: var(--accent); }
+.u-mark:hover { background: var(--row-hover); }
+.u-done { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 4px 4px 10px; font-size: 12px; color: var(--dim); }
+.u-list { list-style: none; margin: 0; padding: 0 0 4px; }
+.u-list li { display: flex; align-items: stretch; }
+.u-list li:hover { background: var(--row-hover); }
+.u-row { flex: 1; min-width: 0; display: grid; grid-template-columns: 26px 1fr auto; column-gap: 6px; align-items: baseline; padding: 3px 0 3px 10px; text-align: left; }
+.u-go { flex: none; width: 30px; color: var(--dim); font-size: 14px; opacity: .45; }
+.u-list li:hover .u-go, .u-go:focus-visible { opacity: 1; color: var(--accent); }
+.badge { display: inline-block; justify-self: start; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
+.u-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.u-name .round { padding-left: 5px; }
+.u-time { color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+.u-prev { grid-column: 2 / 4; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font-size: 12px; }
+.u-spacer { visibility: hidden; }
+.u-list li.solved { background: var(--ok-soft); box-shadow: inset 3px 0 var(--ok); }
+.u-list li.solved .badge, .chip-ok { background: var(--ok); color: var(--ok-ink); }
+.u-list li.solved .u-prev { color: var(--ok); font-weight: 600; }
+.u-list li.solved .u-prev code, .chip-ok code { font: inherit; letter-spacing: .06em; }
+.chip-ok { display: inline-block; border-radius: 9px; padding: 0 7px; font-size: 11px; font-weight: 600; text-transform: none; letter-spacing: 0; white-space: nowrap; }
+.p-head .chip-ok { margin-left: auto; }
+.u-row.fresh { animation: flash 1.2s ease-out; }
+@keyframes flash { from { box-shadow: inset 3px 0 var(--accent); } to { box-shadow: inset 0 0 transparent; } }
+@keyframes pulse { from { color: var(--accent); } to { color: var(--fg); } }
+@media (prefers-reduced-motion: reduce) { .u-row.fresh, .u-toggle.fresh b { animation: none; } .u-toggle .chev { transition: none; } }
+
+.p-log { flex: 1; overflow-y: auto; padding: 6px 10px; }
+.msg { display: flex; gap: 8px; padding: 4px 0; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; flex: none; background: var(--line); display: grid; place-items: center; font-size: 11px; font-weight: 600; color: var(--dim); }
+.msg .body { min-width: 0; }
+.meta { color: var(--dim); font-size: 11px; }
+.meta strong { color: var(--fg); font-size: 13px; }
+.text { overflow-wrap: anywhere; }
+.p-composer { border-top: 1px solid var(--line); padding: 6px 10px; display: flex; gap: 6px; align-items: flex-end; }
+.p-composer textarea { flex: 1; min-width: 0; font: inherit; min-height: 2.6em; resize: none; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 3px; }
+.p-composer button { border: 1px solid var(--line); border-radius: 3px; padding: 3px 10px; }
+
+.open-q { display: flex; flex-direction: column; gap: 10px; max-width: 70ch; }
+.open-q ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.open-q li strong { font-weight: 600; }
+</style>
+
+<div class="wrap">
+  <div class="intro">
+    <h1>Unread puzzles list</h1>
+    <p class="lede">The list with last-message previews, folded until you open it. Looking at a chat no longer has to mean leaving your sheet: the panel can show one puzzle while the tab shows another, and a bar at the top gets you to either. Example data throughout.</p>
+  </div>
+
+  <dl class="keys">
+    <dt>Click a row</dt><dd>Look at that chat here. The browser tab stays where it is.</dd>
+    <dt><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+click, middle-click, or <b>↗</b></dt><dd>Go to that puzzle's tab, opening one if needed. The panel follows.</dd>
+    <dt>Click a browser tab</dt><dd>The panel follows the tab, as it does today.</dd>
+  </dl>
+
+  <div class="toolbar">
+    <button class="btn" id="simulate" type="button">Simulate a new message</button>
+    <button class="btn" id="solve" type="button">Simulate a solve</button>
+    <button class="btn quiet" id="reset" type="button">Forget fold state</button>
+    <span class="hint">The fold state is saved in this browser, so reload to check it sticks.</span>
+  </div>
+
+  <div class="browser">
+    <div class="tabs" id="tabs" role="tablist" aria-label="Browser tabs"></div>
+    <div class="b-body">
+      <div class="sheet" id="sheet"></div>
+      <div class="panel" id="panel"></div>
+    </div>
+  </div>
+
+  <div class="open-q">
+    <h2>What the mockup assumes</h2>
+    <ol>
+      <li><strong>Ctrl/⌘-click rather than right-click or Shift-click.</strong> It is what both browsers already use for "open this in a tab", and middle-click comes with it. Right-click can be taken over in the panel, but it removes the browser's own menu (copy, inspect) and nobody would guess it. Shift-click means "new window" in both browsers. The ↗ on each row covers anyone who doesn't know the shortcut.</li>
+      <li><strong>The peek bar only shows when the chat and the tab differ.</strong> "Back to" carries a count if your own puzzle got messages while you were away. While you peek, your own puzzle can appear in the list like any other.</li>
+      <li><strong>Folded strip still shows the totals</strong> and pulses when something new arrives, so folding it doesn't hide activity.</li>
+      <li><strong>"Mark all read" sits in a footer under the rows, with the pager.</strong> It clears every page, not just the five showing, and leaves an Undo for a few seconds because one stray click would otherwise wipe your triage list. It only shows when the list is open, so it can't be hit from the folded strip.</li>
+      <li><strong>A solve gets a green row.</strong> Tick in place of the count, the answer in place of the last message, and it stays until you look at it or mark all read. After that the puzzle is gone from the list for good: later chat in a solved puzzle does not bring it back. The folded strip gains a green "solved" chip so a solve is visible without opening the list, and the header shows the answer when the chat you are in is solved.</li>
+      <li><strong>Most recent message first,</strong> and a new message returns the list to page 1.</li>
+      <li><strong>The list covers every unsolved puzzle in the hunt, plus general.</strong> Today the extension only counts unread for puzzles you have a tab open on, so this is the part that reaches beyond the panel.</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+const SEED = [
+  { id: "general", name: "# general", round: "Saltmarsh Hunt", tab: "Saltmarsh Hunt – dashboard", unread: 4, ago: 1, msgs: [["Priya", "Harbour meta just unlocked, 3 feeders still open"], ["Tom", "food run in 10 if anyone wants in"]] },
+  { id: "tidal", name: "Tidal Lock", round: "Harbour", unread: 7, ago: 0, msgs: [["Dev", "the moon phases index into the port names"], ["Aiko", "ok so column F is the extraction, 4 letters left"]] },
+  { id: "carto", name: "The Cartographer's Apology", round: "Archive", unread: 2, ago: 3, msgs: [["Mina", "grid refs are OS not lat/long"], ["Mina", "sheet 2 has the corrected coordinates"]] },
+  { id: "marm", name: "Marmalade Protocol", round: "Lighthouse", unread: 12, ago: 4, msgs: [["Jon", "it's a cryptic, not a recipe"], ["Sam", "9 of 14 clues done, enumerations in col C"]] },
+  { id: "ghost", name: "Ghost Notes", round: "Lighthouse", unread: 3, ago: 2, solved: "PARADIDDLE", msgs: [["Aiko", "anyone read drum tab?"], ["Tom", "rudiments! first strokes spell it"], ["Puzzbot", "Solved: PARADIDDLE"]] },
+  { id: "lowtide", name: "Low Tide at Noon", round: "Harbour", unread: 3, ago: 9, msgs: [["Tom", "tide tables are for 1987, not this year"], ["Priya", "that fixes rows 4 to 9"]] },
+  { id: "knight", name: "Knight Moves", round: "Archive", unread: 5, ago: 12, msgs: [["Dev", "the tour is closed, start square is arbitrary"], ["Sam", "reading every 8th square gives gibberish"]] },
+  { id: "borrow", name: "Borrowed Time", round: "Harbour", unread: 1, ago: 15, msgs: [["Jon", "stuck. need fresh eyes"]] },
+  { id: "salt", name: "Salt & Signal", round: "Lighthouse", unread: 2, ago: 21, msgs: [["Mina", "flags are semaphore read from behind"], ["Mina", "answer phrase starts KEEPER"]] },
+  { id: "lantern", name: "Paper Lanterns", round: "Archive", unread: 6, ago: 26, msgs: [["Aiko", "fold lines spell something when stacked"], ["Tom", "printing a set now"]] },
+  { id: "offby", name: "Off by One", round: "Harbour", unread: 1, ago: 34, msgs: [["Sam", "called in STARBOARD, wrong"]] },
+  { id: "longdiv", name: "The Long Division", round: "Harbour meta", unread: 3, ago: 41, msgs: [["Priya", "feeder answers sort by length, not alphabetically"], ["Dev", "we have 6 of 9"]] },
+  { id: "bridges", name: "Seven Bridges", round: "Archive", unread: 0, ago: 2, msgs: [["Jon", "it's Königsberg, each bridge is a clue pair"], ["Mina", "pairs entered in sheet, two don't cross-check"], ["Jon", "bridge 5 is DAM not DAMN"], ["Aiko", "that fixes it. path spells EULERIAN so far"]] },
+];
+const PER_PAGE = 5;
+const FOLD_KEY = "unreadListOpen";
+const EXTRA = [["Sam", "wait, look at the first letters"], ["Dev", "confirmed, updating the sheet"], ["Priya", "can someone check row 7?"], ["Tom", "I think that's the aha"], ["Aiko", "backsolving from the meta gives 8 letters"]];
+
+function h(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text != null) el.textContent = text;
+  return el;
+}
+const ago = (m) => (m <= 0 ? "now" : m + "m");
+const loadOpen = () => { try { return localStorage.getItem(FOLD_KEY) === "1"; } catch { return false; } };
+const saveOpen = (v) => { try { localStorage.setItem(FOLD_KEY, v ? "1" : "0"); } catch {} };
+
+const s = {
+  items: SEED.map((p) => ({ ...p, msgs: p.msgs.map((m) => [...m]) })),
+  tabs: ["bridges", "marm"],
+  activeTab: "bridges", // what the browser shows
+  viewing: "bridges",   // what the panel's chat shows
+  page: 0, open: loadOpen(), fresh: null,
+};
+const item = (id) => s.items.find((p) => p.id === id);
+const tabTitle = (p) => p.tab ?? p.name + " – Google Sheets";
+const unreadItems = () => s.items.filter((p) => p.unread > 0 && p.id !== s.viewing && !(p.solved && p.solvedSeen)).sort((a, b) => a.ago - b.ago);
+
+function look(id) { item(id).unread = 0; if (item(id).solved) item(id).solvedSeen = true; s.viewing = id; s.fresh = null; render(); }
+function goTo(id) {
+  if (!s.tabs.includes(id)) s.tabs.push(id);
+  s.activeTab = id;
+  look(id);
+}
+
+function render() {
+  const tabsEl = document.getElementById("tabs");
+  tabsEl.replaceChildren(...s.tabs.map((id) => {
+    const b = h("button", "tab" + (id === s.activeTab ? " active" : ""), tabTitle(item(id)));
+    b.type = "button";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(id === s.activeTab));
+    b.onclick = () => goTo(id);
+    return b;
+  }));
+  const at = item(s.activeTab);
+  const sheet = document.getElementById("sheet");
+  sheet.replaceChildren(h("strong", null, at.name), at.id === "general" ? "Hunt dashboard" : "Puzzle sheet · " + at.round);
+
+  const cur = item(s.viewing);
+  const list = unreadItems();
+  const pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
+  s.page = Math.min(s.page, pages - 1);
+  const total = list.reduce((n, p) => n + p.unread, 0);
+
+  const head = h("header", "p-head");
+  head.append(h("span", null, cur.name), h("span", "round", cur.round));
+  if (cur.solved) head.append(h("span", "chip-ok", "✓ Solved · " + cur.solved));
+  const kids = [head];
+
+  if (s.viewing !== s.activeTab) {
+    const bar = h("div", "peek");
+    bar.append(h("span", "why", "Looking at a different chat from your tab"));
+    const go = h("button", "primary", "Go to puzzle ↗");
+    go.type = "button";
+    go.onclick = () => goTo(s.viewing);
+    const back = h("button", null, "← Back to " + at.name);
+    back.type = "button";
+    if (at.unread > 0) back.append(h("span", "badge", String(at.unread)));
+    back.onclick = () => look(s.activeTab);
+    bar.append(go, back);
+    kids.push(bar);
+  }
+
+  if (list.length) {
+    const box = h("section", "unread" + (s.open ? " open" : ""));
+    const bar = h("div", "u-bar");
+    const toggle = h("button", "u-toggle" + (s.fresh && !s.open ? " fresh" : ""));
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", String(s.open));
+    const label = h("span");
+    label.append("New in ", h("b", null, String(list.length)), list.length === 1 ? " puzzle · " : " puzzles · ", h("b", null, String(total)));
+    toggle.append(h("span", "chev", "▸"), label);
+    const nSolved = list.filter((p) => p.solved).length;
+    if (nSolved) toggle.append(h("span", "chip-ok", "✓ " + nSolved + " solved"));
+    toggle.onclick = () => { s.open = !s.open; saveOpen(s.open); s.fresh = null; render(); };
+    bar.append(toggle);
+    const foot = h("div", "u-foot");
+    const markAll = h("button", "u-mark", "✓ Mark all read");
+    markAll.type = "button";
+    markAll.onclick = () => {
+      const snap = list.map((p) => [p.id, p.unread]);
+      for (const p of list) { p.unread = 0; if (p.solved) p.solvedSeen = true; }
+      clearTimeout(s.undoTimer);
+      s.undo = snap;
+      s.undoTimer = setTimeout(() => { s.undo = null; render(); }, 8000);
+      s.fresh = null;
+      render();
+    };
+    foot.append(markAll);
+    if (pages > 1) {
+      const pager = h("div", "u-pager");
+      const prev = h("button", null, "‹"), next = h("button", null, "›");
+      prev.type = next.type = "button";
+      prev.setAttribute("aria-label", "Previous page"); next.setAttribute("aria-label", "Next page");
+      prev.disabled = s.page === 0; next.disabled = s.page === pages - 1;
+      prev.onclick = () => { s.page--; s.fresh = null; render(); };
+      next.onclick = () => { s.page++; s.fresh = null; render(); };
+      const from = s.page * PER_PAGE + 1, to = Math.min(list.length, from + PER_PAGE - 1);
+      pager.append(prev, h("span", null, from + "–" + to + " of " + list.length), next);
+      foot.append(pager);
+    }
+    box.append(bar);
+    if (s.open) {
+      const ul = h("ul", "u-list");
+      const slice = list.slice(s.page * PER_PAGE, (s.page + 1) * PER_PAGE);
+      for (const p of slice) {
+        const li = h("li", p.solved ? "solved" : "");
+        const row = h("button", "u-row" + (s.fresh === p.id ? " fresh" : ""));
+        row.type = "button";
+        row.title = "Click to look · Ctrl/⌘-click to go to the tab";
+        const name = h("span", "u-name", p.name);
+        name.append(h("span", "round", p.round));
+        const last = p.msgs[p.msgs.length - 1];
+        row.append(h("span", "badge", p.solved ? "✓" : p.unread > 99 ? "99+" : String(p.unread)), name, h("span", "u-time", ago(p.ago)), h("span"), h("span", "u-prev", p.solved ? "Solved: " + p.solved : last[0] + ": " + last[1]));
+        row.onclick = (e) => (e.ctrlKey || e.metaKey ? goTo(p.id) : look(p.id));
+        row.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); goTo(p.id); } };
+        const go = h("button", "u-go", "↗");
+        go.type = "button";
+        go.title = "Go to " + p.name;
+        go.setAttribute("aria-label", "Go to " + p.name);
+        go.onclick = () => goTo(p.id);
+        li.append(row, go);
+        ul.append(li);
+      }
+      // hold the list at five rows on a short last page so the chat below doesn't jump
+      if (pages > 1) for (let i = slice.length; i < PER_PAGE; i++) {
+        const li = h("li", "u-spacer");
+        const row = h("div", "u-row");
+        row.append(h("span", "badge", "0"), h("span", "u-name", "–"), h("span", "u-time", "–"), h("span"), h("span", "u-prev", "–"));
+        li.append(row);
+        ul.append(li);
+      }
+      box.append(ul, foot);
+    }
+    kids.push(box);
+  } else if (s.undo) {
+    const done = h("section", "unread u-done");
+    const n = s.undo.length;
+    done.append(h("span", null, "Marked " + n + (n === 1 ? " chat" : " chats") + " read"));
+    const undo = h("button", "u-mark", "Undo");
+    undo.type = "button";
+    undo.onclick = () => {
+      for (const [id, n] of s.undo) { item(id).unread += n; item(id).solvedSeen = false; }
+      clearTimeout(s.undoTimer);
+      s.undo = null;
+      render();
+    };
+    done.append(undo);
+    kids.push(done);
+  }
+
+  const log = h("main", "p-log");
+  cur.msgs.forEach(([who, text], i) => {
+    const msg = h("div", "msg");
+    const body = h("div", "body");
+    const meta = h("div", "meta");
+    meta.append(h("strong", null, who), " 14:" + String(10 + i * 3).padStart(2, "0"));
+    body.append(meta, h("div", "text", text));
+    msg.append(h("div", "avatar", who[0]), body);
+    log.append(msg);
+  });
+  const comp = h("div", "p-composer");
+  const ta = h("textarea");
+  ta.id = "draft"; ta.rows = 2; ta.placeholder = "Reply (Enter to send, Shift+Enter for newline)"; ta.setAttribute("aria-label", "Reply");
+  comp.append(ta, h("button", null, "Send"));
+  kids.push(log, comp);
+  document.getElementById("panel").replaceChildren(...kids);
+  log.scrollTop = log.scrollHeight;
+}
+
+document.getElementById("simulate").onclick = () => {
+  const pick = s.items[Math.floor(Math.random() * s.items.length)];
+  const [who, text] = EXTRA[Math.floor(Math.random() * EXTRA.length)];
+  for (const p of s.items) p.ago += 1;
+  pick.msgs.push([who, text]);
+  pick.ago = 0;
+  if (pick.solved && pick.solvedSeen) s.fresh = null; // post-solve chat: stays out of the list
+  else if (pick.id !== s.viewing) { pick.unread += 1; s.fresh = pick.id; s.page = 0; } else s.fresh = null;
+  render();
+};
+const ANSWERS = ["LIGHTHOUSE KEEPER", "EBB AND FLOW", "SEXTANT", "DEAD RECKONING", "FLOTSAM"];
+document.getElementById("solve").onclick = () => {
+  const open = s.items.filter((p) => !p.solved && p.id !== "general");
+  if (!open.length) return;
+  const pick = open[Math.floor(Math.random() * open.length)];
+  for (const p of s.items) p.ago += 1;
+  pick.solved = ANSWERS[Math.floor(Math.random() * ANSWERS.length)];
+  pick.msgs.push(["Puzzbot", "Solved: " + pick.solved]);
+  pick.ago = 0;
+  if (pick.id !== s.viewing) { pick.unread += 1; s.fresh = pick.id; s.page = 0; } else { pick.solvedSeen = true; s.fresh = null; }
+  render();
+};
+document.getElementById("reset").onclick = () => { try { localStorage.removeItem(FOLD_KEY); } catch {} s.open = false; render(); };
+document.getElementById("panel").addEventListener("mousedown", (e) => { if (e.button === 1) e.preventDefault(); });
+render();
+</script>

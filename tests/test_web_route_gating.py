@@ -126,6 +126,10 @@ UNGATED_BY_DECISION = [
     # timed out), because the webhook bypasses Discord's own checks. Pinned by
     # tests/test_channel_reply_web.py.
     ("POST", "/channels/<int:channel_id>/messages"),
+    # Extension unread list: a READ despite the method (the read markers can outgrow
+    # a query string). Gated by hunt visibility only, like GET /hunts/<uid>/puzzles.
+    # Pinned by tests/test_unread_route.py.
+    ("POST", "/hunts/<uid>/unread"),
 ]
 
 # The rest of the open surface: reads, and the writes nobody has argued about.

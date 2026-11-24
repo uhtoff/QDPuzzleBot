@@ -953,6 +953,47 @@ async def get_channel_messages(channel_id, before=None, limit=50):
     return out
 
 
+async def get_own_last_message_ids(channel_ids, author_id):
+    """{channel_id: id of author_id's latest message} for the given channels."""
+    if not channel_ids:
+        return {}
+    placeholders = ",".join(["%s"] * len(channel_ids))
+    rows = await fetch_all(
+        "SELECT channel_id, MAX(id) AS last_id FROM messages "
+        f"WHERE author_id = %s AND channel_id IN ({placeholders}) GROUP BY channel_id",
+        (author_id, *channel_ids),
+    )
+    return {r["channel_id"]: r["last_id"] for r in rows}
+
+
+async def get_unread_counts(markers):
+    """{channel_id: {"unread", "last_id"}} counting human messages (kind 0) newer
+    than each channel's marker, in one query. Channels with none are absent."""
+    if not markers:
+        return {}
+    pairs = " OR ".join(["(channel_id = %s AND id > %s)"] * len(markers))
+    params = tuple(v for cid, marker in markers.items() for v in (cid, marker))
+    rows = await fetch_all(
+        "SELECT channel_id, COUNT(*) AS unread, MAX(id) AS last_id FROM messages "
+        f"WHERE kind = 0 AND ({pairs}) GROUP BY channel_id",
+        params,
+    )
+    return {r["channel_id"]: {"unread": r["unread"], "last_id": r["last_id"]} for r in rows}
+
+
+async def get_messages_by_ids(ids):
+    """{id: row} with the fields the unread list shows for a channel's last message."""
+    if not ids:
+        return {}
+    placeholders = ",".join(["%s"] * len(ids))
+    rows = await fetch_all(
+        "SELECT id, author_name, content, created_at FROM messages "
+        f"WHERE id IN ({placeholders})",
+        tuple(ids),
+    )
+    return {r["id"]: r for r in rows}
+
+
 async def get_attachment_with_channel(attachment_id):
     """Attachment row plus the channel it belongs to, for auth + file serving."""
     return await fetch_one(
