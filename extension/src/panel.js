@@ -4,6 +4,7 @@ import { canCompose, validate, draftAfterSend } from "./lib/composer.js";
 import { applyEvent, eventChannel, sameTarget, mergeHistory, targetChannel } from "./lib/panelState.js";
 import { attachmentView } from "./lib/attachments.js";
 import { messagesPath, safeAvatarUrl } from "./lib/origin.js";
+import { paginate, rowText } from "./lib/unreadList.js";
 import { apiGet, apiSend, getOrigin } from "./api.js";
 
 const KIND_COMMAND = 3;
@@ -15,6 +16,8 @@ const composer = document.getElementById("composer");
 const draft = document.getElementById("draft");
 const sendBtn = document.getElementById("send");
 const composerError = document.getElementById("composer-error");
+const peekBar = document.getElementById("peek");
+const unreadBox = document.getElementById("unread");
 
 let channelId = null;
 let messages = [];
@@ -246,7 +249,8 @@ async function setState({ state, puzzle, channelNames: names }) {
 }
 
 function renderHead(puzzle, state) {
-  head.textContent = puzzle ? puzzle.name + (puzzle.solved ? " (solved)" : "") : "";
+  head.textContent = puzzle ? puzzle.name + (puzzle.solved && !puzzle.solution ? " (solved)" : "") : "";
+  if (puzzle?.solved && puzzle.solution) head.append(el("span", "chip-ok", "✓ Solved · " + puzzle.solution));
   if (puzzle?.discord_url && state === "chat") {
     const a = document.createElement("a");
     a.href = puzzle.discord_url;
@@ -260,22 +264,190 @@ function renderHead(puzzle, state) {
 let port = null;
 let windowId = null;
 
-function askState() {
+function post(msg) {
   if (!port || windowId === null) return;
   try {
-    port.postMessage({ type: "get", windowId });
+    port.postMessage({ ...msg, windowId });
   } catch {
     /* disconnected; onDisconnect reconnects */
   }
 }
 
+const askState = () => post({ type: "get" });
+
+// ---- unread list and peek bar ----
+// The background sends {type: "unread", huntUid, rows, totals, undo, peek}; rows are
+// the hunt's chats with news, newest first, without the one this panel shows.
+const OPEN_KEY = "unreadListOpen";
+let unreadMsg = { huntUid: null, rows: [], totals: { puzzles: 0, messages: 0, solved: 0 }, undo: 0, peek: null };
+let listOpen = false;
+let listPage = 0;
+let topChannel = null; // first row's channel: a new arrival at the top returns to page 1
+let lastMessages = 0;
+let peeking = null; // {huntUid, channelId} while this panel shows a chat that is not the tab's
+
+chrome.storage.local
+  .get({ [OPEN_KEY]: false })
+  .then((r) => {
+    listOpen = r[OPEN_KEY] === true;
+    renderUnread(false);
+  })
+  .catch(() => {});
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text != null) node.textContent = text;
+  return node;
+}
+
+function button(cls, text, onClick, label) {
+  const b = el("button", cls, text);
+  b.type = "button";
+  if (label) b.setAttribute("aria-label", label);
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+function ago(iso) {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (Number.isNaN(t)) return "";
+  const m = Math.max(0, Math.floor((Date.now() - t) / 60000));
+  return m < 1 ? "now" : m < 60 ? m + "m" : Math.floor(m / 60) + "h";
+}
+
+const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
+const peekAt = (ch) => post({ type: "peek", huntUid: unreadMsg.huntUid, channelId: ch.channel_id });
+const goTo = (huntUid, channelId) => post({ type: "goto", huntUid, channelId });
+
+function renderRow(ch) {
+  const li = el("li", ch.newly_solved ? "solved" : "");
+  const row = el("button", "u-row");
+  row.type = "button";
+  row.title = "Click to look · Ctrl/⌘-click to go to its tab";
+  const name = el("span", "u-name", ch.name);
+  if (ch.rounds?.length) name.append(el("span", "u-round", ch.rounds.join(", ")));
+  const prev = el("span", "u-prev");
+  appendInline(prev, rowText(ch));
+  row.append(el("span", "badge", ch.newly_solved ? "✓" : ch.unread > 99 ? "99+" : String(ch.unread)), name, el("span", "u-time", ago(ch.last?.created_at)), el("span"), prev);
+  row.addEventListener("click", (e) => (e.ctrlKey || e.metaKey ? goTo(unreadMsg.huntUid, ch.channel_id) : peekAt(ch)));
+  row.addEventListener("mousedown", (e) => {
+    if (e.button === 1) e.preventDefault(); // no autoscroll: middle-click goes to the tab
+  });
+  row.addEventListener("auxclick", (e) => {
+    if (e.button !== 1) return;
+    e.preventDefault();
+    goTo(unreadMsg.huntUid, ch.channel_id);
+  });
+  li.append(row, button("u-go", "↗", () => goTo(unreadMsg.huntUid, ch.channel_id), "Go to " + ch.name));
+  return li;
+}
+
+function spacerRow() {
+  const li = el("li", "u-spacer");
+  const row = el("div", "u-row");
+  row.append(el("span", "badge", "0"), el("span", "u-name", "–"), el("span", "u-time", "–"), el("span"), el("span", "u-prev", "–"));
+  li.append(row);
+  return li;
+}
+
+function renderUnread(fresh) {
+  const { huntUid, rows, totals: t, undo } = unreadMsg;
+  unreadBox.replaceChildren();
+  unreadBox.classList.toggle("open", listOpen);
+  if (!huntUid || (!rows.length && !undo)) {
+    unreadBox.hidden = true;
+    return;
+  }
+  unreadBox.hidden = false;
+  if (!rows.length) {
+    const done = el("div", "u-done");
+    done.append(el("span", null, "Marked " + plural(undo, "chat", "chats") + " read"), button("u-mark", "Undo", () => post({ type: "undoMarkAll" })));
+    unreadBox.append(done);
+    return;
+  }
+  const toggle = button("u-toggle" + (fresh && !listOpen ? " fresh" : ""), null, () => {
+    listOpen = !listOpen;
+    chrome.storage.local.set({ [OPEN_KEY]: listOpen }).catch(() => {});
+    renderUnread(false);
+  });
+  toggle.setAttribute("aria-expanded", String(listOpen));
+  const label = el("span");
+  label.append("New in ", el("b", null, String(t.puzzles)), t.puzzles === 1 ? " puzzle · " : " puzzles · ", el("b", null, String(t.messages)));
+  toggle.append(el("span", "chev", "▸"), label);
+  if (t.solved) toggle.append(el("span", "chip-ok", "✓ " + t.solved + " solved"));
+  unreadBox.append(toggle);
+  if (!listOpen) return;
+  const p = paginate(rows, listPage);
+  listPage = p.page;
+  const ul = el("ul", "u-list");
+  for (const ch of p.slice) ul.append(renderRow(ch));
+  for (let i = 0; i < p.pad; i++) ul.append(spacerRow());
+  const foot = el("div", "u-foot");
+  foot.append(button("u-mark", "✓ Mark all read", () => post({ type: "markAllRead" })));
+  if (p.pages > 1) {
+    const pager = el("div", "u-pager");
+    const prev = button(null, "‹", () => {
+      listPage--;
+      renderUnread(false);
+    }, "Previous page");
+    const next = button(null, "›", () => {
+      listPage++;
+      renderUnread(false);
+    }, "Next page");
+    prev.disabled = p.page === 0;
+    next.disabled = p.page === p.pages - 1;
+    pager.append(prev, el("span", null, p.from + "–" + p.to + " of " + p.total), next);
+    foot.append(pager);
+  }
+  unreadBox.append(ul, foot);
+}
+
+function renderPeek(peek) {
+  peekBar.replaceChildren();
+  peekBar.hidden = !peek;
+  if (!peek) return;
+  const back = button(null, "← Back to " + (peek.name ?? "your tab"), () => post({ type: "peek", huntUid: null, channelId: null }));
+  if (peek.unread > 0) back.append(el("span", "badge", peek.unread > 99 ? "99+" : String(peek.unread)));
+  peekBar.append(
+    el("span", "why", "Looking at a different chat from your tab"),
+    button("primary", "Go to puzzle ↗", () => currentPuzzle && goTo(currentPuzzle.hunt_uid, currentPuzzle.channel_id)),
+    back,
+  );
+}
+
+function onUnread(msg) {
+  const rows = Array.isArray(msg.rows) ? msg.rows : [];
+  if ((rows[0]?.channel_id ?? null) !== topChannel) {
+    topChannel = rows[0]?.channel_id ?? null;
+    listPage = 0;
+  }
+  const messagesNow = msg.totals?.messages ?? 0;
+  const fresh = messagesNow > lastMessages;
+  lastMessages = messagesNow;
+  unreadMsg = { huntUid: msg.huntUid ?? null, rows, totals: msg.totals ?? unreadMsg.totals, undo: msg.undo ?? 0, peek: msg.peek ?? null };
+  renderUnread(fresh);
+  renderPeek(unreadMsg.peek);
+}
+
+// Ages ("4m") go stale while nothing arrives.
+setInterval(() => {
+  if (listOpen && !unreadBox.hidden) renderUnread(false);
+}, 60000);
+
 function connectPort() {
   port = chrome.runtime.connect({ name: "panel" });
   port.onMessage.addListener((msg) => {
     if (msg.type === "puzzle") {
+      peeking = msg.peek && msg.puzzle ? { huntUid: msg.puzzle.hunt_uid, channelId: msg.puzzle.channel_id } : null;
+      renderPeek(msg.peek ?? null);
       setState(msg);
+    } else if (msg.type === "unread") {
+      onUnread(msg);
     } else if (msg.type === "reset") {
       // Dashboard origin changed or was revoked: drop history and composer, then ask afresh.
+      peeking = null;
+      onUnread({ huntUid: null, rows: [], undo: 0, peek: null });
       setState({ state: "loading" });
       askState();
     } else if (msg.type === "names") {
@@ -300,8 +472,10 @@ function connectPort() {
     socketUp = false;
     schedulePoll();
     setTimeout(() => {
+      const keep = peeking; // a restarted worker forgot the peek: ask for it again
       connectPort();
       askState();
+      if (keep) post({ type: "peek", ...keep });
     }, 1000);
   });
 }
@@ -311,4 +485,7 @@ chrome.windows.getCurrent().then((w) => {
   connectPort();
   askState();
 });
-chrome.tabs.onActivated.addListener(askState);
+// Only this window's tab switches: one elsewhere must not end this panel's peek.
+chrome.tabs.onActivated.addListener((info) => {
+  if (info.windowId === windowId) askState();
+});
