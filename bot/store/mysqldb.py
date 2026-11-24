@@ -882,6 +882,19 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             "AND voice_channel_id IS NOT NULL AND voice_channel_id <> 0", (hunt_id,))
         return self.construct_puzzles(rows)
 
+    def get_solved_by_channel_ids(self, channel_ids) -> dict:
+        """Return {channel_id: solved} for puzzles whose channel is one of
+        *channel_ids*; channels with no puzzle row are absent. One query, no
+        hydration — for callers that only need to sort channels (tidy)."""
+        ids = list(channel_ids)
+        if not ids:
+            return {}
+        placeholders = ",".join(["%s"] * len(ids))
+        rows = self._fetch_all(
+            f"SELECT channel_id, solved FROM `{self.TABLE_NAME}` "
+            f"WHERE channel_id IN ({placeholders})", tuple(ids))
+        return {int(row["channel_id"]): bool(row["solved"]) for row in rows}
+
     def get_names_by_ids(self, ids) -> dict:
         """Return {puzzle_id: name} for the given ids, skipping unknown ids.
 
@@ -894,13 +907,6 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         placeholders = ",".join(["%s"] * len(ids))
         rows = self._fetch_all(f"SELECT id, name FROM `{self.TABLE_NAME}` WHERE id IN ({placeholders})", tuple(ids))
         return {row["id"]: row["name"] for row in rows}
-
-    def get_all(self, guild_id, hunt_id="*") -> List[PuzzleData]:
-        """Retrieve all puzzles from database"""
-        rows = self._fetch_all("SELECT puzzles.* FROM puzzles "
-                       "LEFT JOIN hunts ON puzzles.hunt_id = hunts.id "
-                       "WHERE hunts.guild_id = %s", (guild_id,))
-        return PuzzleData.sort_by_puzzle_start(self.construct_puzzles(rows))
 
     def get_all_from_hunt(self, hunt_id) -> List[PuzzleData]:
         """Retrieve all puzzles from database"""

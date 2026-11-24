@@ -869,6 +869,8 @@ def _unsplit_fixture(monkeypatch, n_unsolved=3, n_solved=2, divider_reaches_cach
 
     goc = AsyncMock(side_effect=_fake_get_or_create)
     monkeypatch.setattr(layout, "get_or_create_channel", goc)
+    guild.id = 42
+    guild._state.http.bulk_channel_update = AsyncMock()
     # Don't really sleep while polling for the cache in the timeout test.
     monkeypatch.setattr(layout, "_DIVIDER_WAIT_TRIES", 3)
     monkeypatch.setattr(layout, "_DIVIDER_WAIT_DELAY", 0)
@@ -878,19 +880,41 @@ def _unsplit_fixture(monkeypatch, n_unsolved=3, n_solved=2, divider_reaches_cach
 @pytest.mark.asyncio
 async def test_unsplit_merges_solved_back_under_divider(monkeypatch):
     """Both sides at seq=0 and small enough: recreate the divider at the bottom
-    of the unsolved category, move the solved channels below it with explicit
-    positions, delete the solved category, and delete the rows LAST."""
+    of the unsolved category, move the solved channels below it, delete the
+    solved category, and delete the rows LAST.
+
+    The move is ONE bulk position update scoped to the unsolved category, built
+    from a single snapshot of its order: per-channel edit(position=...) calls
+    each renumber the whole guild from the cache, which goes stale between
+    calls, so later movers landed above the divider / above general (live bug
+    2026-11-23)."""
     guild, u0, s0, dao, store, divider, goc = _unsplit_fixture(monkeypatch)
-    solved_channels = list(s0.channels)
+    for i, ch in enumerate(u0.channels):
+        ch.id = 1000 + i
+    # Unsolved channels out of list order by position, to prove we sort.
+    u0.channels[0].position, u0.channels[2].position = 2, 0
+    s0.channels[0].id, s0.channels[1].id = 2000, 2001
+    s0.channels[0].position, s0.channels[1].position = 7, 3   # 2001 comes first
+    divider.id = 999
 
     await layout.consolidate(guild, 5, dao)
 
     goc.assert_awaited_once_with(
         guild=guild, category=u0, channel_name=SOLVE_DIVIDER,
         channel_type="text", position=500)
-    # Movers land after the divider (position 3), in their original order.
-    solved_channels[0].edit.assert_awaited_once_with(category=u0, position=4)
-    solved_channels[1].edit.assert_awaited_once_with(category=u0, position=5)
+    guild._state.http.bulk_channel_update.assert_awaited_once()
+    args, kwargs = guild._state.http.bulk_channel_update.await_args
+    assert args[0] == 42
+    assert args[1] == [
+        {"id": 1002, "position": 0},
+        {"id": 1001, "position": 1},
+        {"id": 1000, "position": 2},
+        {"id": 999, "position": 3},                      # divider
+        {"id": 2001, "position": 4, "parent_id": 100},  # solved, original order
+        {"id": 2000, "position": 5, "parent_id": 100},
+    ]
+    for ch in s0.channels:
+        ch.edit.assert_not_awaited()
     s0.delete.assert_awaited_once()
     dao.delete_for_group.assert_called_once_with(5)
     assert store == []                     # owner is single-category again
@@ -939,8 +963,7 @@ async def test_unsplit_aborts_when_divider_never_reaches_cache(monkeypatch):
     await layout.consolidate(guild, 5, dao)
 
     goc.assert_awaited_once()
-    for ch in s0.channels:
-        ch.edit.assert_not_awaited()
+    guild._state.http.bulk_channel_update.assert_not_awaited()
     s0.delete.assert_not_awaited()
     assert len(store) == 2                 # rows survive -> resumable
 
@@ -1361,3 +1384,94 @@ async def test_delete_group_categories_keeps_protected_channel():
     doomed.delete.assert_awaited_once()
     cat.delete.assert_awaited_once()
     dao.delete_for_group.assert_called_once_with(5)
+
+
+# ----------------------------------------------------------------- tidy
+
+def _tidy_cat(names_ids):
+    """A category whose text channels are (name, id) pairs at positions in
+    list order — i.e. the list IS the current sidebar order."""
+    chans = []
+    for pos, (name, cid) in enumerate(names_ids):
+        ch = MagicMock(); ch.name = name; ch.id = cid; ch.position = pos
+        chans.append(ch)
+    cat = MagicMock(id=100)
+    cat.channels = chans
+    cat.text_channels = chans
+    return cat
+
+
+def _ids(channels):
+    return [ch.id for ch in channels]
+
+
+# The live bug's layout (2026-11-23): solved puzzles above general, and solved
+# puzzles between the unsolved block and the divider.
+_SCRAMBLED = [("s-a", 11), ("s-b", 12), ("general", 1), ("u-a", 21), ("u-b", 22),
+              ("s-c", 13), (SOLVE_DIVIDER, 99), ("s-d", 14)]
+_PUZZLES = {11, 12, 13, 14, 21, 22, 31}
+_SOLVED = {11, 12, 13, 14, 31}
+
+
+def test_tidy_order_general_on_top_then_unsolved_divider_solved():
+    """Group / hunt category: general first, unsolved next, divider, then
+    solved — each block keeping its existing relative order."""
+    cat = _tidy_cat(_SCRAMBLED)
+    order = layout.tidy_order(cat, _PUZZLES, _SOLVED)
+    assert _ids(order) == [1, 21, 22, 99, 11, 12, 13, 14]
+
+
+def test_tidy_order_pins_unsolved_meta_target_on_top():
+    """Round category: an unsolved meta target is pinned above everything,
+    including non-puzzle channels, wherever it currently sits."""
+    cat = _tidy_cat([("general", 1), ("u-a", 21), (SOLVE_DIVIDER, 99),
+                     ("meta", 32), ("s-a", 11)])
+    order = layout.tidy_order(cat, _PUZZLES | {32}, _SOLVED, pinned_channel_id=32)
+    assert _ids(order) == [32, 1, 21, 99, 11]
+
+
+def test_tidy_order_solved_meta_target_heads_solved_section():
+    """A solved target is not pinned on top: it heads the solved block,
+    directly under the divider, even if it currently sits below other solved
+    puzzles (or above everything)."""
+    cat = _tidy_cat([("meta", 31), ("general", 1), ("u-a", 21),
+                     (SOLVE_DIVIDER, 99), ("s-a", 11), ("s-b", 12)])
+    order = layout.tidy_order(cat, _PUZZLES, _SOLVED, pinned_channel_id=31)
+    assert _ids(order) == [1, 21, 99, 31, 11, 12]
+    cat = _tidy_cat([("general", 1), (SOLVE_DIVIDER, 99), ("s-a", 11),
+                     ("meta", 31), ("s-b", 12)])
+    order = layout.tidy_order(cat, _PUZZLES, _SOLVED, pinned_channel_id=31)
+    assert _ids(order) == [1, 99, 31, 11, 12]
+
+
+def test_tidy_order_none_without_divider():
+    cat = _tidy_cat([("u-a", 21), ("s-a", 11)])
+    assert layout.tidy_order(cat, _PUZZLES, _SOLVED) is None
+
+
+@pytest.mark.asyncio
+async def test_tidy_category_sends_one_bulk_update_scoped_to_category():
+    cat = _tidy_cat(_SCRAMBLED)
+    guild = MagicMock(id=42)
+    guild._state.http.bulk_channel_update = AsyncMock()
+
+    moved = await layout.tidy_category(guild, cat, _PUZZLES, _SOLVED)
+
+    assert moved == 7                       # every slot except the last (s-d)
+    guild._state.http.bulk_channel_update.assert_awaited_once()
+    args, kwargs = guild._state.http.bulk_channel_update.await_args
+    assert args[0] == 42
+    assert args[1] == [{"id": i, "position": p}
+                       for p, i in enumerate([1, 21, 22, 99, 11, 12, 13, 14])]
+    for ch in cat.channels:
+        ch.edit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_tidy_category_already_tidy_makes_no_call():
+    cat = _tidy_cat([("general", 1), ("u-a", 21), (SOLVE_DIVIDER, 99), ("s-a", 11)])
+    guild = MagicMock(id=42)
+    guild._state.http.bulk_channel_update = AsyncMock()
+
+    assert await layout.tidy_category(guild, cat, _PUZZLES, _SOLVED) == 0
+    guild._state.http.bulk_channel_update.assert_not_awaited()

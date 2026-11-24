@@ -497,6 +497,82 @@ async def _consolidate_role(guild, owner_id, dao, role, _count, added):
         # Loop: a further fold may now be possible.
 
 
+def _sibling_order(ch):
+    """Discord's own order for siblings: position, ties broken by id."""
+    return (ch.position, ch.id)
+
+
+async def apply_category_order(guild, category, ordered, *, reason):
+    """Put *ordered* text channels into *category* in exactly that order, in
+    ONE bulk position update. Channels currently elsewhere are moved in.
+
+    Never use a loop of channel.edit(position=...) for this: each such call
+    makes discord.py renumber every text channel in the guild from the cache,
+    which is stale between calls (the CHANNEL_UPDATEs for the previous
+    renumber haven't all arrived), so later channels land in the wrong place
+    (live bug 2026-11-23: solved channels above the divider and general).
+    Positions only order siblings within a parent, so numbering just this
+    category 0..n-1 leaves every other category's order untouched.
+    """
+    members = {ch.id for ch in category.text_channels}
+    payload = []
+    for i, ch in enumerate(ordered):
+        entry = {"id": ch.id, "position": i}
+        if ch.id not in members:
+            entry["parent_id"] = category.id
+        payload.append(entry)
+    await guild._state.http.bulk_channel_update(guild.id, payload, reason=reason)
+
+
+def tidy_order(category, puzzle_channel_ids, solved_channel_ids, pinned_channel_id=None):
+    """The correct order of a divider category's text channels, or None if
+    the category has no divider (split categories need no tidying):
+
+        pinned (a round's meta target, else the group's / hunt's general
+        channel) → other non-puzzle channels → unsolved puzzles → divider →
+        solved puzzles
+
+    Each group keeps its current relative order. A pinned meta target stays
+    on top only while unsolved; once solved it heads the solved block,
+    directly under the divider — where a live solve puts it
+    (_apply_solved_move moves a solved channel to divider + 1, with no target
+    exemption)."""
+    channels = sorted(category.text_channels, key=_sibling_order)
+    divider = next((ch for ch in channels if ch.name == SOLVE_DIVIDER), None)
+    if divider is None:
+        return None
+    target = [ch for ch in channels if ch.id == pinned_channel_id]
+    target_solved = pinned_channel_id in solved_channel_ids
+    pinned = [] if target_solved else target
+    rest = [ch for ch in channels if ch is not divider and ch.id != pinned_channel_id]
+    other = [ch for ch in rest if ch.id not in puzzle_channel_ids]
+    unsolved = [ch for ch in rest
+                if ch.id in puzzle_channel_ids and ch.id not in solved_channel_ids]
+    solved = [ch for ch in rest
+              if ch.id in puzzle_channel_ids and ch.id in solved_channel_ids]
+    if target_solved:
+        solved = target + solved
+    return pinned + other + unsolved + [divider] + solved
+
+
+async def tidy_category(guild, category, puzzle_channel_ids, solved_channel_ids,
+                        pinned_channel_id=None):
+    """Re-sort a divider category into tidy_order with one bulk update.
+    Returns how many channels changed place (0 = already tidy, no API call),
+    or None when the category has no divider. Takes layout_lock."""
+    async with layout_lock:
+        ordered = tidy_order(category, puzzle_channel_ids, solved_channel_ids,
+                             pinned_channel_id)
+        if ordered is None:
+            return None
+        current = sorted(category.text_channels, key=_sibling_order)
+        moved = sum(1 for a, b in zip(current, ordered) if a is not b)
+        if moved:
+            await apply_category_order(guild, category, ordered,
+                                       reason="tidy_category")
+        return moved
+
+
 # How long to wait for a freshly-created divider to appear in the guild cache
 # (it arrives on the gateway CHANNEL_CREATE event, normally within ms).
 _DIVIDER_WAIT_TRIES = 30
@@ -547,10 +623,12 @@ async def _maybe_unsplit(guild, owner_id, dao, _count):
         if s_cat is not None:
             movers = sorted(
                 (ch for ch in s_cat.text_channels if ch.name != SOLVE_DIVIDER),
-                key=lambda ch: ch.position)
-            base = max((ch.position for ch in u_cat.channels), default=-1) + 1
-            for i, ch in enumerate(movers):
-                await ch.edit(category=u_cat, position=base + i)
+                key=_sibling_order)
+            if movers:
+                await apply_category_order(
+                    guild, u_cat,
+                    sorted(u_cat.text_channels, key=_sibling_order) + movers,
+                    reason="un-split: merge solved back")
             await s_cat.delete(reason=DELETE_REASON)
     except Exception:
         logger.exception("unsplit: failed midway for owner %s (safe: rows "
