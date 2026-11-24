@@ -686,6 +686,9 @@ The full [command reference](commands.md) lists every command; highlights:
 - **Keeping things tidy mid-hunt:** `!sync` (in a group's channel) tags every channel in
   the category into the group; `!rebuild` regenerates meta roll-up sheets;
   `!reconcile apply` heals any drift between Discord, Sheets and the database.
+  If a category's channels end up out of order (solved puzzles above the `———solved———`
+  divider, say), run `!tidy_category` in any of its channels: general (or the meta, while
+  unsolved) goes back on top, then unsolved puzzles, the divider, and solved puzzles below it.
 - **Links between sheets:** in each puzzle's sheet header a **Feeds:** line links to the
   metas it feeds: under **Solution** on the full header, in cell A3 (B3 on a meta) on the
   compact header. Puzzle names in meta and minimeta tables and
