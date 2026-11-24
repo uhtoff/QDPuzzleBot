@@ -51,6 +51,10 @@ class MessageBridge(commands.Cog):
         self._session: aiohttp.ClientSession | None = None
         self._puzzle_channels: set[int] = set()
         self._non_puzzle_channels: set[int] = set()  # negative cache for the lazy gate
+        # Hunt general channels (hunts.channel_id), mirrored for the chat
+        # extension's dashboard view. Kept apart from _puzzle_channels: they are
+        # not puzzles, and the first-welcome skip must never apply to them.
+        self._hunt_channels: set[int] = set()
         self._seen_channels: set[int] = set()  # channels whose first message we've already judged
 
     async def cog_load(self):
@@ -58,6 +62,7 @@ class MessageBridge(commands.Cog):
             logger.info("Message bridge disabled (web.bridge_enabled=false)")
             return
         self._puzzle_channels = await asyncio.to_thread(self._load_puzzle_channels)
+        self._hunt_channels = await asyncio.to_thread(self._load_hunt_channels)
         self._session = aiohttp.ClientSession()
         self._worker = asyncio.create_task(self._drain(), name="message-bridge-writer")
         self._refresher = asyncio.create_task(self._refresh_loop(), name="message-bridge-refresh")
@@ -92,11 +97,26 @@ class MessageBridge(commands.Cog):
                 cur.close()
         return {int(r["channel_id"]) for r in rows}
 
+    @staticmethod
+    def _load_hunt_channels() -> set[int]:
+        # Same dedicated connection + lock as _load_puzzle_channels (see there).
+        from bot.store import bridge_channels_conn
+        with _CHANNELS_CONN_LOCK:
+            cur = bridge_channels_conn.dict_cursor()
+            try:
+                cur.execute("SELECT channel_id FROM hunts WHERE channel_id IS NOT NULL "
+                            "AND channel_id <> 0")
+                rows = cur.fetchall() or []
+            finally:
+                cur.close()
+        return {int(r["channel_id"]) for r in rows}
+
     async def _refresh_loop(self):
         while True:
             await asyncio.sleep(_REFRESH_SECONDS)
             try:
                 self._puzzle_channels = await asyncio.to_thread(self._load_puzzle_channels)
+                self._hunt_channels = await asyncio.to_thread(self._load_hunt_channels)
                 self._non_puzzle_channels.clear()  # drop stale negatives so conversions re-check
             except Exception:
                 logger.exception("Failed to refresh bridge puzzle-channel set")
@@ -145,7 +165,8 @@ class MessageBridge(commands.Cog):
             return  # bridge disabled / not started — stay inert
         if message.guild is None:
             return
-        if not await self._is_puzzle_channel(message.channel.id):
+        if (message.channel.id not in self._hunt_channels
+                and not await self._is_puzzle_channel(message.channel.id)):
             return
         author_name = (getattr(message.author, "display_name", None) or message.author.name)[:255]
         avatar = getattr(getattr(message.author, "display_avatar", None), "url", None)
@@ -242,6 +263,8 @@ class MessageBridge(commands.Cog):
         empty) doesn't re-trigger on the next bot embed; the DB check keeps it from
         swallowing a real message after a restart."""
         cid = rec["channel_id"]
+        if cid in self._hunt_channels:
+            return False  # a hunt general channel has history: its first bot embed is real
         if cid in self._seen_channels:
             return False
         self._seen_channels.add(cid)

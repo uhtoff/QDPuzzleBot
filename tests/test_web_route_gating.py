@@ -148,6 +148,7 @@ UNGATED_REMAINDER = [
     ("GET", "/hunts"),
     ("GET", "/hunts/<uid>"),
     ("GET", "/hunts/<uid>/canvases"),
+    ("GET", "/hunts/<uid>/chat"),
     ("GET", "/hunts/<uid>/puzzles"),
     ("GET", "/media/<int:media_id>"),
     ("GET", "/media/<int:media_id>/markup"),

@@ -150,7 +150,7 @@ async def get_hunt_by_uid(uid):
         "SELECT id, uid, name, url, guild_id, role_id, roster_role_id, archived, "
         "google_sheet_id, solved_sheet_id, sheet_mode, drive_folder_id, start_time, solve_time, "
         "start_timestamp, end_timestamp, username, password, url_sep, puzzle_prefix, "
-        "voice_channel_id, voice_per_puzzle, header_style, canvas_enabled "
+        "voice_channel_id, voice_per_puzzle, header_style, canvas_enabled, channel_id "
         "FROM hunts WHERE uid = %s",
         (uid,),
     )
@@ -280,14 +280,20 @@ async def get_hunt_for_canvas(canvas_id):
 
 
 async def get_hunt_by_channel_id(channel_id):
-    """Resolve the hunt that owns a puzzle channel. Works for archived hunts too
-    (the hunt row persists after the channel is deleted), so it authorizes frozen
-    transcripts that a live channel-permission check could not."""
-    return await fetch_one(
+    """Resolve the hunt that owns a chat channel: a puzzle channel, or the hunt's
+    own general channel (hunts.channel_id — shown by the chat extension on the
+    dashboard). Works for archived hunts too (the hunt row persists after the
+    channel is deleted), so it authorizes frozen transcripts that a live
+    channel-permission check could not."""
+    hunt = await fetch_one(
         "SELECT h.* FROM hunts h JOIN puzzles p ON p.hunt_id = h.id "
         "WHERE p.channel_id = %s LIMIT 1",
         (channel_id,),
     )
+    if hunt is not None:
+        return hunt
+    return await fetch_one(
+        "SELECT * FROM hunts WHERE channel_id = %s LIMIT 1", (channel_id,))
 
 
 def voice_fields(guild_snowflake, voice_channel_id):

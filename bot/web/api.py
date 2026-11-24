@@ -234,6 +234,42 @@ async def puzzle_by_sheet():
     })
 
 
+@api_bp.route("/hunts/<uid>/chat")
+@login_required
+async def hunt_chat(uid):
+    """The hunt's general channel, in the by-sheet lookup's shape, for the chat
+    extension's panel while the hunt board is open on the dashboard. Not a
+    puzzle: no id, never solved, no sheet."""
+    user = current_user()
+    assert user is not None
+    not_found = (jsonify({"error": "not_found_or_forbidden"}), 404)
+    hunt = await data.get_hunt_by_uid(uid)
+    if hunt is None:
+        return not_found
+    membership, roles_by_guild = await resolve_membership(user["id"])
+    guilds_map = await data.get_guilds_map()
+    if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
+        return not_found
+    guild_snowflake = guilds_map.get(hunt["guild_id"], {}).get("guild_snowflake")
+    channel_id = hunt.get("channel_id")
+    return jsonify({
+        "puzzle": {
+            "id": None,
+            "name": f"{hunt['name']} (general)",
+            "solved": False,
+            "channel_id": str(channel_id) if channel_id else None,
+            "discord_url": (f"https://discord.com/channels/{guild_snowflake}/{channel_id}"
+                            if guild_snowflake and channel_id else None),
+            "sheet_url": None,
+            "hunt_uid": hunt["uid"],
+            "hunt_archived": bool(hunt["archived"]),
+            "sheet_mode": None,
+            "hunt_chat": True,
+        },
+        "bridge_enabled": bool(config.web_bridge_enabled),
+    })
+
+
 @api_bp.route("/channels/<int:channel_id>/messages")
 @login_required
 async def channel_messages(channel_id):
