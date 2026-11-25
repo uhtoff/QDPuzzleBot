@@ -198,6 +198,13 @@ async function fetchAndStoreUnread(uid) {
   if (typeof res.self_id === "string") selfId = res.self_id;
   if (typeof res.hunt_name === "string") huntTitles.set(uid, res.hunt_name);
   if (skew !== null) clockSkewMs = skew;
+  // A first-run baseline came from this machine's clock: move it to the server's,
+  // then ask again, as this answer was judged against the uncorrected one.
+  if (skew !== null && markers.settleBaseline(skew)) {
+    markersVersion++;
+    await saveMarkersNow();
+    return "stale";
+  }
   const visible = await visibleChannels();
   // No await from here to the set: messages arriving meanwhile land in the buffer.
   const before = new Map((huntCache.get(uid) ?? []).map((c) => [c.channel_id, c]));
