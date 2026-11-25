@@ -550,7 +550,7 @@ side panel, and in **Firefox** 140 or later on the desktop, as a sidebar.
   have listed the Chrome extension on the server (`web.extension_origins`), or the live chat
   connection is refused.
 - **Firefox:** open
-  [puzzle-chat-firefox-1.1.0.xpi](https://quarantinedecrypters.com/extension/puzzle-chat-firefox-1.1.0.xpi)
+  [puzzle-chat-firefox-1.2.0.xpi](https://quarantinedecrypters.com/extension/puzzle-chat-firefox-1.2.0.xpi)
   in Firefox and click **Add**. It updates itself after that, and nothing needs adding on the
   server. Firefox for Android isn't supported (it has no sidebar).
 
