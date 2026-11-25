@@ -8,8 +8,8 @@ import { maxId } from "./readMarkers.js";
 export const PER_PAGE = 5;
 const KIND_HUMAN = 0;
 
-// A solved chat's unread messages stay listed this long after the solve, so late
-// chatter (backsolve notes, tags) is still seen; after that a solve silences it.
+// A solved chat stays listed this long after the solve -- its Solved row, and any
+// late chatter (backsolve notes, tags) -- then drops out, seen or not.
 export const SOLVED_GRACE_MS = 10 * 60000;
 
 // When a solved chat's window closes (ms), or null when its solve time is unknown.
@@ -24,14 +24,14 @@ const inGrace = (ch, now) => {
 };
 
 export const isListed = (ch, now = Date.now()) =>
-  (ch.unread > 0 && (!ch.solved || inGrace(ch, now))) || !!ch.newly_solved;
+  ch.solved ? (ch.unread > 0 || !!ch.newly_solved) && inGrace(ch, now) : ch.unread > 0;
 
-// The soonest moment a row listed only by the grace window drops out, or null:
-// the background re-sends the list then, as nothing else may change meanwhile.
+// The soonest moment a solved chat's row drops out, or null: the background
+// re-sends the list then, as nothing else may change meanwhile.
 export function nextGraceEnd(channels, now = Date.now()) {
   let soonest = null;
   for (const ch of channels) {
-    if (!(ch.unread > 0) || ch.newly_solved || !inGrace(ch, now)) continue;
+    if (!ch.solved || !isListed(ch, now)) continue;
     const end = graceEnd(ch);
     if (soonest === null || end < soonest) soonest = end;
   }

@@ -44,10 +44,12 @@ const msgEv = (channel_id, over = {}) => ({
 
 describe("isListed", () => {
   it("lists unsolved chats with unread, and newly solved ones", () => {
-    expect(isListed(ch({ unread: 2 }))).toBe(true);
-    expect(isListed(ch({ unread: 0 }))).toBe(false);
-    expect(isListed(ch({ solved: true, unread: 3 }))).toBe(false);
-    expect(isListed(ch({ solved: true, newly_solved: true, unread: 0 }))).toBe(true);
+    const now = Date.parse("2026-11-24T15:01:00+00:00");
+    const solvedAt = "2026-11-24T15:00:00+00:00";
+    expect(isListed(ch({ unread: 2 }), now)).toBe(true);
+    expect(isListed(ch({ unread: 0 }), now)).toBe(false);
+    expect(isListed(ch({ solved: true, unread: 3 }), now)).toBe(false);
+    expect(isListed(ch({ solved: true, solved_at: solvedAt, newly_solved: true, unread: 0 }), now)).toBe(true);
   });
 });
 
@@ -62,6 +64,13 @@ describe("solved grace window", () => {
     expect(isListed(c, at(9.9))).toBe(true);
     expect(isListed(c, at(10))).toBe(false);
     expect(isListed(c, at(30))).toBe(false);
+  });
+
+  it("a Solved row also clears ten minutes after the solve, seen or not", () => {
+    const c = ch({ solved: true, solved_at: solvedAt, newly_solved: true, unread: 0 });
+    expect(isListed(c, at(9.9))).toBe(true);
+    expect(isListed(c, at(10))).toBe(false);
+    expect(isListed({ ...c, unread: 4 }, at(10))).toBe(false);
   });
 
   it("needs unread messages, and a known solve time", () => {
@@ -89,6 +98,9 @@ describe("solved grace window", () => {
       ch({ channel_id: "e", unread: 3 }),
     ];
     expect(nextGraceEnd(chans, at(1))).toBe(at(10));
+    // A Solved row with nothing unread is timed too.
+    const solvedRow = ch({ channel_id: "f", solved: true, solved_at: "2026-11-24T14:58:00+00:00", newly_solved: true, unread: 0 });
+    expect(nextGraceEnd([...chans, solvedRow], at(1))).toBe(at(8));
     expect(nextGraceEnd(chans, at(10))).toBe(Date.parse(later) + SOLVED_GRACE_MS);
     expect(nextGraceEnd(chans, at(20))).toBeNull();
   });
@@ -112,10 +124,12 @@ describe("listRows", () => {
     const rows = listRows(
       [
         ch({ channel_id: "a", unread: 1, last: last("30") }),
-        ch({ channel_id: "s", solved: true, newly_solved: true, solution: "X", last: last("5"), solved_seq: "40" }),
+        ch({ channel_id: "s", solved: true, newly_solved: true, solution: "X", last: last("5"), solved_seq: "40",
+             solved_at: "2026-11-24T15:00:00+00:00" }),
         ch({ channel_id: "b", unread: 1, last: last("20") }),
       ],
       null,
+      Date.parse("2026-11-24T15:01:00+00:00"), // inside the solved chat's window
     );
     expect(rows.map((r) => r.channel_id)).toEqual(["s", "a", "b"]);
   });
