@@ -3747,7 +3747,6 @@ class Puzzles(commands.Cog):
 
     @commands.hybrid_command(aliases=["rename_meta"], description="Rename this puzzle, its channel and its sheet tab")
     @is_organiser()
-    @with_puzzle_mutex(wait=True)
     async def rename_puzzle(self, ctx, *, puzzle_name: str):
         """*Rename this puzzle, its channel and its sheet tab.*
 
@@ -3755,27 +3754,41 @@ class Puzzles(commands.Cog):
         Example: `!rename_puzzle the actual clueless crossword`
         Run in the puzzle's channel. Organisers/admins only. Alias: `!rename_meta`."""
         puzzle = self.get_puzzle(ctx)
-        if puzzle:
-            hunt = self.get_hunt(ctx)
-            assert hunt is not None  # puzzle channels always resolve their hunt
-            if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, hunt.id, exclude_puzzle_id=puzzle.id):
-                return await ctx.send(
-                    f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt, please use a different name")
-            try:
+        if not puzzle:
+            return await self.send_not_puzzle_channel(ctx)
+        # The puzzle lock is taken here rather than by @with_puzzle_mutex so a
+        # channel-name clash can be asked about OUTSIDE it (as !puzzle does with
+        # hunt_create_lock): a 30s prompt must not block every other change to
+        # this puzzle. The first pass asks; on Accept a second pass re-reads the
+        # puzzle, re-runs the duplicate check and renames with -N.
+        lock = _PUZZLE_LOCKS[puzzle.id]
+        if lock.locked():
+            await ctx.send("⏳ Hold your horses!  Another command is running for this puzzle, I'll get to you in a second.")
+        mode = "ask"
+        while True:
+            clash = None
+            async with lock:
+                self._refresh_environment(ctx, puzzle.id)
+                puzzle = self.get_puzzle(ctx)
+                hunt = self.get_hunt(ctx)
+                assert hunt is not None  # puzzle channels always resolve their hunt
+                if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, hunt.id, exclude_puzzle_id=puzzle.id):
+                    return await ctx.send(
+                        f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt, please use a different name")
                 try:
                     await self.service.rename_puzzle(
-                        ctx.guild, hunt, puzzle, puzzle_name, on_channel_clash="ask")
-                except ChannelNameClash as clash:
-                    if not await self._confirm_channel_suffix(ctx, clash, "renamed"):
-                        return
-                    await self.service.rename_puzzle(
-                        ctx.guild, hunt, puzzle, puzzle_name, on_channel_clash="suffix")
-            except SheetRefreshError as exc:
-                await self._warn_stale_sheets(ctx, exc)
+                        ctx.guild, hunt, puzzle, puzzle_name, on_channel_clash=mode)
+                except ChannelNameClash as exc:
+                    clash = exc
+                except SheetRefreshError as exc:
+                    await self._warn_stale_sheets(ctx, exc)
+                    return
+            if clash is None:
+                break
+            if not await self._confirm_channel_suffix(ctx, clash, "renamed"):
                 return
-            await ctx.channel.send(":white_check_mark: I've updated the puzzle and channel names")
-        else:
-            await self.send_not_puzzle_channel(ctx)
+            mode = "suffix"
+        await ctx.channel.send(":white_check_mark: I've updated the puzzle and channel names")
 
     @commands.hybrid_command(aliases=["rename_round", "rename_metapuzzle"],
                              description="Rename this group, its category and channel")

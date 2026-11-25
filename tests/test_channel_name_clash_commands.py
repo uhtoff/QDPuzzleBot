@@ -72,3 +72,33 @@ async def test_bang_rename_clash_prompts_then_suffixes_or_cancels(accept, modes)
     got = [c.kwargs["on_channel_clash"] for c in cog.service.rename_puzzle.await_args_list]
     assert got == modes
     assert ctx.channel.send.await_count == (1 if accept else 0)   # the success line
+
+
+async def test_bang_rename_prompts_outside_the_puzzle_lock_and_rechecks_duplicates():
+    """The Accept/Cancel prompt must not hold the puzzle lock (it would block every
+    other change to the puzzle for up to 30s), and a name taken while the prompt
+    was open must still be refused."""
+    from bot.core.locks import _PUZZLE_LOCKS
+    cog = _cog()
+    puz = make_puzzle(id=71, name="Tide", channel_id=50)
+    ctx = _ctx(cog, make_hunt(id=1), puzzle=puz)
+    cog.service.rename_puzzle = AsyncMock(side_effect=[ChannelNameClash("general", "general-1"), None])
+    held_during_rename, held_during_prompt = [], []
+
+    async def confirm(*_a):
+        held_during_prompt.append(_PUZZLE_LOCKS[71].locked())
+        pdb.check_duplicates_in_hunt.return_value = True   # taken meanwhile
+        return True
+    cog._confirm_channel_suffix = AsyncMock(side_effect=confirm)
+    with patch("bot.cogs.puzzles.PuzzleJsonDb") as pdb:
+        pdb.get_by_attr.return_value = puz
+        pdb.check_duplicates_in_hunt.side_effect = (
+            lambda *a, **k: held_during_rename.append(_PUZZLE_LOCKS[71].locked())
+            or pdb.check_duplicates_in_hunt.return_value)
+        pdb.check_duplicates_in_hunt.return_value = False
+        await Puzzles.rename_puzzle.callback(cog, ctx, puzzle_name="General")
+    assert held_during_prompt == [False]
+    assert held_during_rename == [True, True]      # both passes check under the lock
+    assert cog.service.rename_puzzle.await_count == 1   # the second pass was refused
+    assert "already exists" in ctx.send.await_args.args[0]
+    ctx.channel.send.assert_not_awaited()
