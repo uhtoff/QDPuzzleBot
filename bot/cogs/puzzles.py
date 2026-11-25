@@ -114,6 +114,8 @@ _UNSTORED_SETTING_KEYS = {
         "tags": "Use `!feeds` / `!informs` / `!groups_with` / `!remove_from`.",
         "tag_edges": "Use `!feeds` / `!informs` / `!groups_with` / `!remove_from`.",
         "additional_sheets": "Use `!add_sheet` / `!remove_sheet`.",
+        "answers": "Use `!solve` / `!partial` / `!add_solution` / `!change_solution`.",
+        "answers_dirty": "It's internal bookkeeping for answer writes, not a setting.",
         "voice_channel_id": "The bot manages voice channels: use `!voice` (`!vc`) and "
                             "`!voice_cleanup`.",
         "header_layout": "It's fixed when the puzzle is created, from the hunt's "

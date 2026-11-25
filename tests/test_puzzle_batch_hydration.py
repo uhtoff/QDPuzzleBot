@@ -57,15 +57,18 @@ def _batch_row(pid, name="P"):
 
 
 def test_t5_query_count_does_not_grow_with_the_batch():
-    """The whole point: 4 queries for 1 puzzle, still 4 for many."""
+    """The whole point: a fixed query count for 1 puzzle, the same for many.
+
+    5 = tags, additional sheets, is_target, is_minimeta, plus the per-batch answers
+    hydration (puzzle_answers, migration 064)."""
     db_one, log_one = _batch_db()
     db_one.construct_puzzles([_batch_row(1)])
 
     db_many, log_many = _batch_db()
     db_many.construct_puzzles([_batch_row(i) for i in range(1, 7)])
 
-    assert len(log_one) == len(log_many) == 4, (
-        f"expected a fixed 4 hydration queries, got {len(log_one)} and {len(log_many)}"
+    assert len(log_one) == len(log_many) == 5, (
+        f"expected a fixed 5 hydration queries, got {len(log_one)} and {len(log_many)}"
     )
 
 
