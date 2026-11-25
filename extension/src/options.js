@@ -1,4 +1,5 @@
 import { DEFAULT_ORIGIN, SHEETS_ORIGINS, parseOrigin } from "./lib/origin.js";
+import { notifyPrefs } from "./lib/notify.js";
 
 // Live: https://quarantinedecrypters.com (default). Test instance: https://puzzbot.com
 const input = document.getElementById("origin");
@@ -44,32 +45,35 @@ document.getElementById("save").addEventListener("click", async () => {
   checkAccess();
 });
 
-const notify = document.getElementById("notify");
-chrome.storage.sync.get({ notify: false }).then((v) => {
-  notify.checked = v.notify;
-  // A stored "on" without the permission (revoked in chrome://extensions) must not look enabled.
-  if (v.notify) {
-    chrome.permissions.contains({ permissions: ["notifications"] }).then((ok) => {
-      if (!ok) notify.checked = false;
-    });
-  }
+// Two switches, one optional permission: requested when either goes on, dropped when
+// both are off.
+const switches = { notifySolves: document.getElementById("notify-solves"), notifyMessages: document.getElementById("notify-messages") };
+chrome.storage.sync.get(["notify", "notifyMessages", "notifySolves"]).then(async (stored) => {
+  const prefs = notifyPrefs(stored);
+  // A stored "on" without the permission (revoked in the browser) must not look enabled.
+  const ok = await chrome.permissions.contains({ permissions: ["notifications"] }).catch(() => false);
+  switches.notifySolves.checked = ok && prefs.solves;
+  switches.notifyMessages.checked = ok && prefs.messages;
 });
-notify.addEventListener("change", async () => {
-  status.textContent = "";
-  if (notify.checked) {
-    // Optional permission: must be requested first, inside the user gesture.
-    const granted = await chrome.permissions.request({ permissions: ["notifications"] }).catch(() => false);
-    if (!granted) {
-      notify.checked = false;
-      status.textContent = "Notification permission denied.";
-      return;
+for (const box of Object.values(switches)) {
+  box.addEventListener("change", async () => {
+    status.textContent = "";
+    if (box.checked) {
+      // Optional permission: must be requested first, inside the user gesture.
+      const granted = await chrome.permissions.request({ permissions: ["notifications"] }).catch(() => false);
+      if (!granted) {
+        box.checked = false;
+        status.textContent = "Notification permission denied.";
+        return;
+      }
     }
-    await chrome.storage.sync.set({ notify: true });
-  } else {
-    await chrome.storage.sync.set({ notify: false });
-    await chrome.permissions.remove({ permissions: ["notifications"] }).catch(() => {});
-  }
-});
+    // Both written, so the old single switch no longer decides either.
+    await chrome.storage.sync.set({ notifySolves: switches.notifySolves.checked, notifyMessages: switches.notifyMessages.checked });
+    if (!switches.notifySolves.checked && !switches.notifyMessages.checked) {
+      await chrome.permissions.remove({ permissions: ["notifications"] }).catch(() => {});
+    }
+  });
+}
 
 // Firefox lets the user revoke the Sheets permission; without it every tab is "not a puzzle".
 const sheets = document.getElementById("sheets");

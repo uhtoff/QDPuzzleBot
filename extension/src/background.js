@@ -7,7 +7,7 @@ import { invalidateOnNavigate } from "./lib/tabRefresh.js";
 import { createLookupGen } from "./lib/lookupGen.js";
 import { shouldApplyLookup, canClose, planWindowClose } from "./lib/closeSolved.js";
 import { createPageTabs, pageTabsFor } from "./lib/pageTabs.js";
-import { notificationId, parseNotificationId, shouldNotify } from "./lib/notify.js";
+import { chatNotificationId, notificationId, notifyKind, notifyPrefs, parseNotificationId, solvedChannel } from "./lib/notify.js";
 import { createNameCache, resolveName } from "./lib/channelNames.js";
 import { notificationText } from "./lib/discordText.js";
 import { clockSkew, createMarkers, snowflakeAt } from "./lib/readMarkers.js";
@@ -321,20 +321,34 @@ async function peekChat(port, huntUid, channelId) {
 async function gotoChat(port, huntUid, channelId) {
   await ready;
   const windowId = ports.get(port);
-  const ch = findChannel(huntUid, channelId);
-  if (!ch || typeof windowId !== "number") return;
+  if (!findChannel(huntUid, channelId) || typeof windowId !== "number") return;
   peeks.delete(port);
+  const tab = await openChannel(huntUid, channelId, windowId);
+  if (!tab) return;
+  // Already the active tab (no activation event follows): show it now.
+  const fresh = await chrome.tabs.get(tab.id).catch(() => null);
+  if (fresh && fresh.windowId === windowId) await refreshTab(fresh, port);
+}
+
+// Focus the chat's open tab (this window first) and return it; else open its sheet,
+// or (general chat, no sheet, or a chat the list does not hold, e.g. a mini) the hunt
+// board, in a new tab and return null.
+async function openChannel(huntUid, channelId, windowId) {
+  const ch = findChannel(huntUid, channelId);
+  const board = async () => (await getOrigin()) + "/hunts/" + encodeURIComponent(huntUid);
+  if (!ch) {
+    await chrome.tabs.create({ url: await board(), windowId, active: true }).catch(() => {});
+    return null;
+  }
   const tabs = (await Promise.all(registry.tabsForChannel(ch.channel_id).map((id) => chrome.tabs.get(id).catch(() => null)))).filter(Boolean);
   const tab = tabs.find((t) => t.windowId === windowId) ?? tabs[0];
   if (tab) {
     await focusTab(tab);
-    // Already the active tab (no activation event follows): show it now.
-    const fresh = await chrome.tabs.get(tab.id).catch(() => null);
-    if (fresh && fresh.windowId === windowId) await refreshTab(fresh, port);
-    return;
+    return tab;
   }
-  const url = ch.kind === "puzzle" && ch.sheet_url ? ch.sheet_url : (await getOrigin()) + "/hunts/" + encodeURIComponent(huntUid);
+  const url = ch.kind === "puzzle" && ch.sheet_url ? ch.sheet_url : await board();
   await chrome.tabs.create({ url, windowId, active: true }).catch(() => {});
+  return null;
 }
 
 function markAllRead() {
@@ -375,6 +389,10 @@ function undoMarkAll() {
 
 // A board change (a solve, a new puzzle) may change a hunt's list: refetch, debounced.
 const boardTimers = new Map();
+// Puzzle channel -> ms its solve last notified: one solve is announced in the puzzle's
+// own channel and in each meta it feeds, and should notify once.
+const solveNotified = new Map();
+const SOLVE_DEDUP_MS = 2 * 60000;
 function boardChanged(uid) {
   if (!wantedHunts().has(uid) && !huntCache.has(uid)) return;
   clearTimeout(boardTimers.get(uid));
@@ -417,25 +435,53 @@ async function handleMessage(ev) {
     refetchWanted();
   }
   await pushUnread();
-  // Desktop notifications, as before: a chat with an open tab that no panel shows.
+  const kind = notifyKind(ev.message);
+  if (!kind) return;
+  const prefs = notifyPrefs(
+    await chrome.storage.sync.get(["notify", "notifyMessages", "notifySolves"]).catch(() => ({})),
+  );
+  if (kind === "message" && prefs.messages) await notifyMessage(ev, channelId, visible);
+  else if (kind === "solve" && prefs.solves) await notifySolve(ev, channelId, visible);
+}
+
+// "notifications" is an optional permission: skip silently until/unless granted.
+const canNotify = async () =>
+  !!chrome.notifications && (await chrome.permissions.contains({ permissions: ["notifications"] }).catch(() => false));
+
+const showNotification = (id, title, message) =>
+  chrome.notifications
+    .create(id, { type: "basic", iconUrl: chrome.runtime.getURL("icons/icon128.png"), title, message })
+    .catch(() => {});
+
+// A person's message: only in a chat with an open tab that no panel shows.
+async function notifyMessage(ev, channelId, visible) {
   if (!registry.tabsForChannel(channelId).length || visible.includes(channelId)) return;
-  const { notify } = await chrome.storage.sync.get({ notify: false }).catch(() => ({ notify: false }));
-  if (!notify || !shouldNotify(ev.message)) return;
-  // "notifications" is an optional permission: skip silently until/unless granted.
-  if (!chrome.notifications || !(await chrome.permissions.contains({ permissions: ["notifications"] }).catch(() => false))) return;
+  if (!(await canNotify())) return;
   const tabId = registry.tabsForChannel(channelId)[0];
   const huntMap = await huntNames(registry.get(tabId)?.hunt_uid, wantedChannel(ev.message));
   const text = notificationText(ev.message, (id) => resolveName(id, huntMap, registryName));
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab) return;
-  chrome.notifications
-    .create(notificationId(tabId, tab.windowId), {
-      type: "basic",
-      iconUrl: chrome.runtime.getURL("icons/icon128.png"),
-      title: registry.get(tabId)?.name ?? "Puzzle chat",
-      message: text,
-    })
-    .catch(() => {});
+  showNotification(notificationId(tabId, tab.windowId), registry.get(tabId)?.name ?? "Puzzle chat", text);
+}
+
+// A solve: anywhere in a hunt the extension follows (open tabs, the panel's hunt), once
+// per puzzle, unless the announcement is on screen in a panel.
+async function notifySolve(ev, channelId, visible) {
+  const huntUid = [...huntCache].find(([, chans]) => chans.some((c) => c.channel_id === channelId))?.[0];
+  const target = solvedChannel(ev.message, channelId);
+  if (!huntUid || !target) return;
+  const now = Date.now();
+  for (const [id, at] of solveNotified) if (now - at > SOLVE_DEDUP_MS) solveNotified.delete(id);
+  if (solveNotified.has(target)) return;
+  solveNotified.set(target, now);
+  if (visible.includes(channelId) || visible.includes(target) || !(await canNotify())) return;
+  const huntMap = await huntNames(huntUid, target);
+  const name = findChannel(huntUid, target)?.name ?? resolveName(target, huntMap, registryName);
+  const text = notificationText(ev.message, (id) => resolveName(id, huntMap, registryName));
+  const win = await chrome.windows.getLastFocused().catch(() => null);
+  if (typeof win?.id !== "number") return;
+  showNotification(chatNotificationId(huntUid, target, win.id), name ? "Solved: " + name : "Puzzle solved", text);
 }
 
 // chrome.notifications is undefined until the optional permission is granted, so register
@@ -450,6 +496,10 @@ function registerNotificationClick() {
     // Synchronously, before any await, to stay inside the click's user gesture; Chrome may still reject it.
     panelHost.open(target.windowId);
     chrome.notifications.clear(id);
+    if (target.huntUid) {
+      await openChannel(target.huntUid, target.channelId, target.windowId);
+      return;
+    }
     const tab = await chrome.tabs.get(target.tabId).catch(() => null);
     if (!tab) return;
     chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});

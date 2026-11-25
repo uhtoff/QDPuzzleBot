@@ -11,7 +11,9 @@
   <input id="origin" type="url" size="40" placeholder="https://quarantinedecrypters.com">
   <button id="save">Save</button>
   <p id="access" hidden></p>
-  <p><label><input id="notify" type="checkbox"> Desktop notifications for new messages</label></p>
+  <p>Desktop notifications:<br>
+    <label><input id="notify-solves" type="checkbox"> Solves, anywhere in the hunt (recommended)</label><br>
+    <label><input id="notify-messages" type="checkbox"> Chat messages in puzzles you have open</label></p>
   <p id="sheets" hidden>Puzzle Chat cannot see your Google Sheets tabs. <button id="sheets-grant">Allow access to Google Sheets</button></p>
   <p id="status" role="status"></p>
   <script type="module" src="options.js"></script>

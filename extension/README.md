@@ -69,7 +69,16 @@ sidebar). `manifest.json` is the Chrome manifest; the Firefox one is generated f
 - **Dashboard origin** - defaults to `https://quarantinedecrypters.com` (live). The test
   instance is `https://puzzbot.com`. Saving asks Chrome for permission to that origin; if you
   refuse, the origin is not saved. https only, no path.
-- **Desktop notifications for new messages** - off by default.
+- **Desktop notifications** - two switches, both off by default (turning either on asks
+  for the optional notifications permission; turning both off gives it back):
+  - **Solves**: every puzzle solved in a hunt the extension is following (one with a tab
+    open, or the panel's hunt), once per puzzle even though the bot announces it in the
+    puzzle and in each meta it feeds. Clicking one goes to the puzzle's tab, or opens its
+    sheet (the hunt board for a puzzle without one). The user guide recommends this on.
+  - **Chat messages**: people's messages in puzzles you have open in a tab, unless the
+    panel is showing that chat. The user guide recommends this off: the unread list
+    already shows them.
+  An older single "notifications" setting carries over to both.
 
 ## Server config: `web.extension_origins`
 

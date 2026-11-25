@@ -559,7 +559,8 @@ Then, in either browser:
 1. Stay logged in to the dashboard in the same browser profile; the extension uses that login.
 2. Optionally open the extension's **Options** to change the dashboard address (default
    `https://quarantinedecrypters.com`; the test instance is `https://puzzbot.com`) or to turn
-   on desktop notifications (off by default).
+   on desktop notifications (both off by default). We recommend turning on **Solves** and
+   leaving **Chat messages** off: new messages already show in the panel's unread list.
 3. Reload any dashboard tabs that were already open, so the extension's buttons appear. Do
    the same after each extension update.
 
@@ -587,9 +588,12 @@ Options and click **Allow access to Google Sheets**.
 - **Attachments** show as links (the file name) that open in a new tab; ones the bot has not
   downloaded yet show as plain names.
 - **Unread badge:** counts new messages in puzzles you have open in tabs, except the one
-  showing in an open panel. Desktop notifications, if you turned them on, fire for people's
-  messages and solve announcements, not for a puzzle open in the panel. Clicking one switches
-  to that puzzle's tab. **Firefox:** open the sidebar yourself if it is closed.
+  showing in an open panel.
+- **Desktop notifications** (Options; both off by default): **Solves** notifies once for
+  every puzzle solved in the hunt you're working on, not only the ones you have open;
+  **Chat messages** notifies for people's messages in puzzles you have open in a tab. Neither
+  fires for a chat the panel is showing. Clicking one switches to the puzzle's tab, or opens
+  its sheet. **Firefox:** open the sidebar yourself if it is closed.
 - **Work on this puzzle** (an icon on the puzzle row, a labelled button in the puzzle drawer;
   only for puzzles that have a sheet): switches to the puzzle's sheet, opening it if needed,
   and opens the side panel. **Firefox:** it switches to the sheet, but you open the sidebar
