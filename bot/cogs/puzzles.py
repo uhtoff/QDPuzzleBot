@@ -3761,17 +3761,19 @@ class Puzzles(commands.Cog):
         # hunt_create_lock): a 30s prompt must not block every other change to
         # this puzzle. The first pass asks; on Accept a second pass re-reads the
         # puzzle, re-runs the duplicate check and renames with -N.
-        lock = _PUZZLE_LOCKS[puzzle.id]
+        puzzle_id = puzzle.id
+        lock = _PUZZLE_LOCKS[puzzle_id]
         if lock.locked():
             await ctx.send("⏳ Hold your horses!  Another command is running for this puzzle, I'll get to you in a second.")
         mode = "ask"
         while True:
             clash = None
             async with lock:
-                self._refresh_environment(ctx, puzzle.id)
+                self._refresh_environment(ctx, puzzle_id)
                 puzzle = self.get_puzzle(ctx)
                 hunt = self.get_hunt(ctx)
-                assert hunt is not None  # puzzle channels always resolve their hunt
+                # Both were resolved before the lock; the refresh only re-reads them.
+                assert puzzle is not None and hunt is not None
                 if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, hunt.id, exclude_puzzle_id=puzzle.id):
                     return await ctx.send(
                         f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt, please use a different name")
