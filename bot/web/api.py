@@ -297,7 +297,11 @@ async def hunt_unread(uid):
     counts = await data.get_unread_counts(markers)
     lasts = await data.get_messages_by_ids([c["last_id"] for c in counts.values()])
     return jsonify({"channels": unread.build_channels(
-        hunt, puzzles, guild_snowflake, markers, counts, lasts)})
+        hunt, puzzles, guild_snowflake, markers, counts, lasts,
+        solve_markers=unread.effective_markers(ids, baseline, read, {})),
+        # A string: a Discord id outgrows a JS number. The extension uses it to
+        # treat the user's own live messages as read, as `own` does here.
+        "self_id": str(user["id"])})
 
 
 @api_bp.route("/channels/<int:channel_id>/messages")

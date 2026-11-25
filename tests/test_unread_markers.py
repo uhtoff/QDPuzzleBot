@@ -89,7 +89,7 @@ def test_effective_markers_takes_the_largest_per_channel():
 HUNT = {"name": "Saltmarsh", "channel_id": 800}
 GUILD = 777
 PUZZLE_KEYS = {"channel_id", "kind", "puzzle_id", "name", "rounds", "solved", "solution",
-               "newly_solved", "sheet_url", "discord_url", "unread", "last"}
+               "newly_solved", "solved_at", "sheet_url", "discord_url", "unread", "last"}
 
 
 def _bc_puz(**kw):
@@ -101,12 +101,13 @@ def _bc_puz(**kw):
     return {**base, **kw}
 
 
-def _bc_build(puzzles, *, hunt=HUNT, markers=None, counts=None, lasts=None):
+def _bc_build(puzzles, *, hunt=HUNT, markers=None, solve_markers=None, counts=None, lasts=None):
     if markers is None:
         ids = ([hunt["channel_id"]] if hunt["channel_id"] else []) + \
               [int(p["channel_id"]) for p in puzzles if p["channel_id"]]
         markers = {c: SNOW_A for c in ids}
-    return unread.build_channels(hunt, puzzles, GUILD, markers, counts or {}, lasts or {})
+    return unread.build_channels(hunt, puzzles, GUILD, markers, counts or {}, lasts or {},
+                                 solve_markers=markers if solve_markers is None else solve_markers)
 
 
 def _bc_by_channel(out):
@@ -200,6 +201,31 @@ def test_build_channels_newly_solved_uses_each_channels_own_marker():
         markers={800: SNOW_A, 901: SNOW_A, 902: SNOW_B}))
     assert out["901"]["newly_solved"] is True
     assert out["902"]["newly_solved"] is False
+
+
+def test_build_channels_newly_solved_ignores_the_users_own_messages():
+    """Every solve shows, even one the user typed with !s: the user's own message
+    (folded into `markers`, which drive the counts) must not hide it. The solve is
+    judged against `solve_markers` (baseline + read markers only)."""
+    solve = data._iso(T_A + datetime.timedelta(seconds=30))
+    out = _bc_by_channel(_bc_build(
+        [_bc_puz(id=1, channel_id="901", solved=True, solution="X", solve_time=solve),
+         _bc_puz(id=2, channel_id="902", solved=True, solution="Y", solve_time=solve)],
+        markers={800: SNOW_A, 901: SNOW_B, 902: SNOW_B},       # own message after the solve
+        solve_markers={800: SNOW_A, 901: SNOW_A, 902: SNOW_B}))  # 902 really was read after it
+    assert out["901"]["newly_solved"] is True
+    assert out["902"]["newly_solved"] is False
+
+
+def test_build_channels_solved_at_is_the_solve_time_of_solved_puzzles_only():
+    solve = data._iso(T_A)
+    out = _bc_by_channel(_bc_build([
+        _bc_puz(id=1, channel_id="901", solved=True, solution="X", solve_time=solve),
+        _bc_puz(id=2, channel_id="902", solved=False, solve_time=None),
+    ]))
+    assert out["901"]["solved_at"] == solve
+    assert out["902"]["solved_at"] is None
+    assert out["800"]["solved_at"] is None
 
 
 def test_build_channels_entry_has_exactly_the_pinned_keys():

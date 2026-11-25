@@ -2,21 +2,49 @@ import { maxId } from "./readMarkers.js";
 
 // The unread list: channel entries as POST /api/hunts/<uid>/unread returns them
 // ({channel_id, kind, puzzle_id, name, rounds, solved, solution, newly_solved,
-// sheet_url, discord_url, unread, last}), plus `solved_seq`, the snowflake of when
+// solved_at, sheet_url, discord_url, unread, last}), plus `solved_seq`, the snowflake of when
 // the background first saw a channel as newly solved (the server sends no solve time).
 
 export const PER_PAGE = 5;
 const KIND_HUMAN = 0;
 
-export const isListed = (ch) => (!ch.solved && ch.unread > 0) || !!ch.newly_solved;
+// A solved chat's unread messages stay listed this long after the solve, so late
+// chatter (backsolve notes, tags) is still seen; after that a solve silences it.
+export const SOLVED_GRACE_MS = 10 * 60000;
+
+// When a solved chat's window closes (ms), or null when its solve time is unknown.
+function graceEnd(ch) {
+  const t = ch.solved && ch.solved_at ? Date.parse(ch.solved_at) : NaN;
+  return Number.isNaN(t) ? null : t + SOLVED_GRACE_MS;
+}
+
+const inGrace = (ch, now) => {
+  const end = graceEnd(ch);
+  return end !== null && now < end;
+};
+
+export const isListed = (ch, now = Date.now()) =>
+  (ch.unread > 0 && (!ch.solved || inGrace(ch, now))) || !!ch.newly_solved;
+
+// The soonest moment a row listed only by the grace window drops out, or null:
+// the background re-sends the list then, as nothing else may change meanwhile.
+export function nextGraceEnd(channels, now = Date.now()) {
+  let soonest = null;
+  for (const ch of channels) {
+    if (!(ch.unread > 0) || ch.newly_solved || !inGrace(ch, now)) continue;
+    const end = graceEnd(ch);
+    if (soonest === null || end < soonest) soonest = end;
+  }
+  return soonest;
+}
 
 // Sort key: the later of its last message and its solve.
 export const activityId = (ch) => maxId(ch.last?.id, ch.solved_seq) ?? "0";
 
 // Listed chats, newest activity first, without the one the panel is showing.
-export function listRows(channels, viewingChannelId) {
+export function listRows(channels, viewingChannelId, now = Date.now()) {
   return channels
-    .filter((ch) => isListed(ch) && ch.channel_id !== viewingChannelId)
+    .filter((ch) => isListed(ch, now) && ch.channel_id !== viewingChannelId)
     .sort((a, b) => {
       const x = BigInt(activityId(a));
       const y = BigInt(activityId(b));

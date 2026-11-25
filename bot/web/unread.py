@@ -82,16 +82,21 @@ def _entry(cid, counts, lasts, **fields):
             "unread": counts.get(cid, {}).get("unread", 0), "last": _last(counts, lasts, cid)}
 
 
-def build_channels(hunt, puzzles, guild_snowflake, markers, counts, lasts):
+def build_channels(hunt, puzzles, guild_snowflake, markers, counts, lasts, *, solve_markers):
     """The response's channel list: the hunt's general channel, then each top-level
-    puzzle with a channel, in the order given. Every channel is returned, read or not."""
+    puzzle with a channel, in the order given. Every channel is returned, read or not.
+
+    *markers* (own messages folded in) drive the counts; *solve_markers* (baseline and
+    read markers only) decide newly_solved, so a solve shows even when the user's own
+    message (e.g. the `!s` that solved it) came after it."""
     out = []
     general = hunt.get("channel_id")
     if general:
         gid = int(general)
         out.append(_entry(
             gid, counts, lasts, kind="general", puzzle_id=None, name=f"{hunt['name']} (general)",
-            rounds=[], solved=False, solution=None, newly_solved=False, sheet_url=None,
+            rounds=[], solved=False, solution=None, newly_solved=False, solved_at=None,
+            sheet_url=None,
             discord_url=(f"https://discord.com/channels/{guild_snowflake}/{gid}"
                          if guild_snowflake else None)))
     for p in puzzles:
@@ -100,12 +105,13 @@ def build_channels(hunt, puzzles, guild_snowflake, markers, counts, lasts):
         cid = int(p["channel_id"])
         solved = bool(p.get("solved"))
         solve_time = _parse_time(p.get("solve_time"))
-        marker = markers.get(cid)
+        marker = solve_markers.get(cid)
         newly = (solved and solve_time is not None and marker is not None
                  and solve_time > snowflake_time(marker))
         out.append(_entry(
             cid, counts, lasts, kind="puzzle", puzzle_id=p["id"], name=p["name"],
             rounds=[r["name"] for r in p.get("rounds") or []], solved=solved,
-            solution=p.get("solution"), newly_solved=newly, sheet_url=p.get("sheet_url"),
+            solution=p.get("solution"), newly_solved=newly,
+            solved_at=p.get("solve_time") if solved else None, sheet_url=p.get("sheet_url"),
             discord_url=p.get("discord_url")))
     return out

@@ -86,3 +86,32 @@ async def test_unread_get_is_not_allowed():
     async with _ur_client() as c:
         resp = await c.get(URL)
         assert resp.status_code == 405
+
+
+async def test_unread_a_solve_after_the_users_own_message_hides_nothing():
+    """The own-message rule drives the counts, but not newly_solved: a puzzle the
+    user solved with !s (an own message at the solve) still shows as solved."""
+    snow_a = (1_700_000_000_000 - 1420070400000) << 22      # 2023-11-14T22:13:20Z
+    snow_b = snow_a + (60_000 << 22)                         # a minute later
+    solved = {**_ur_puz(2, "901"), "solved": True, "solution": "FOUND",
+              "solve_time": "2023-11-14T22:13:50+00:00"}
+    async with _ur_client() as c:
+        c.m["puzzles"].return_value = [_ur_puz(1, "900"), solved]
+        c.m["own"].return_value = {901: snow_b}
+        resp = await c.post(URL, json={"baseline": str(snow_a), "read": {}})
+        body = await resp.get_json()
+    c.m["counts"].assert_awaited_once_with({800: snow_a, 900: snow_a, 901: snow_b})
+    entry = {e["channel_id"]: e for e in body["channels"]}["901"]
+    assert entry["newly_solved"] is True
+    assert entry["solved_at"] == "2023-11-14T22:13:50+00:00"
+
+
+async def test_unread_returns_the_users_own_id_as_a_string():
+    """The extension skips the user's own live messages by author id. A Discord id
+    outgrows a JS number (2**53), so it must arrive as a string."""
+    big = 123456789012345678
+    async with _ur_client() as c:
+        with patch("bot.web.auth.session", {"user": {"id": big, "username": "t"}}):
+            resp = await c.post(URL, json={"baseline": "100", "read": {}})
+            body = await resp.get_json()
+    assert body["self_id"] == "123456789012345678"

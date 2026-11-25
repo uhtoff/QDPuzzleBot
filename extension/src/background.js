@@ -11,7 +11,7 @@ import { notificationId, parseNotificationId, shouldNotify } from "./lib/notify.
 import { createNameCache, resolveName } from "./lib/channelNames.js";
 import { notificationText } from "./lib/discordText.js";
 import { createMarkers, snowflakeAt } from "./lib/readMarkers.js";
-import { applyMessage, badgeCount, badgeText, clearAll, clearChannel, isListed, listRows, peekPuzzle, totals } from "./lib/unreadList.js";
+import { applyMessage, badgeCount, badgeText, clearAll, clearChannel, isListed, listRows, nextGraceEnd, peekPuzzle, totals } from "./lib/unreadList.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
 import { panelWindow } from "./lib/panelWindow.js";
 import { groupMove } from "./lib/groupMove.js";
@@ -49,6 +49,10 @@ const huntCache = new Map(); // huntUid -> channels[]
 const portHunt = new Map(); // port -> the (unarchived) hunt its panel last showed
 const peeks = new Map(); // port -> {huntUid, channelId}: a chat shown instead of the tab's
 const misses = new Set(); // channel ids no cached hunt knows, until the next board event
+// The dashboard user's Discord id (a string), from the unread response: their own live
+// messages are read, as the server already counts them. null until the first fetch.
+let selfId = null;
+let graceTimer = null; // re-sends the lists when a solved chat's grace window ends
 const huntFetches = new Map(); // huntUid -> {again, promise}
 const huntFailed = new Map(); // huntUid -> ms of its last failed fetch (e.g. an older dashboard)
 const HUNT_RETRY_MS = 60000;
@@ -172,6 +176,7 @@ async function doFetchUnread(uid) {
     return "done";
   }
   huntFailed.delete(uid);
+  if (typeof res.self_id === "string") selfId = res.self_id;
   const before = new Map((huntCache.get(uid) ?? []).map((c) => [c.channel_id, c]));
   const now = snowflakeAt(Date.now());
   // The server sends no solve time: a solve sorts from when it was first seen.
@@ -234,7 +239,7 @@ async function pushUnread() {
         huntCache.set(uid, chans);
       }
     }
-    const rows = chans ? listRows(chans, view.channelId) : [];
+    const rows = chans ? listRows(chans, view.channelId, now) : [];
     safePost(port, {
       type: "unread",
       huntUid: chans ? uid : null,
@@ -246,11 +251,24 @@ async function pushUnread() {
   }
   if (moved) saveMarkers();
   updateBadge();
+  scheduleGraceEnd(now);
   for (const uid of wantedHunts()) {
     if (huntCache.has(uid) || huntFetches.has(uid)) continue;
     if (Date.now() - (huntFailed.get(uid) ?? 0) < HUNT_RETRY_MS) continue;
     fetchUnread(uid);
   }
+}
+
+// Nothing else may happen when a solved chat's grace window closes: push then.
+function scheduleGraceEnd(now) {
+  clearTimeout(graceTimer);
+  graceTimer = null;
+  let soonest = null;
+  for (const chans of huntCache.values()) {
+    const end = nextGraceEnd(chans, now);
+    if (end !== null && (soonest === null || end < soonest)) soonest = end;
+  }
+  if (soonest !== null) graceTimer = setTimeout(pushUnread, Math.max(0, soonest - Date.now()) + 50);
 }
 
 function notePortHunt(port, puzzle) {
@@ -313,7 +331,7 @@ function markAllRead() {
   const caches = new Map(huntCache);
   let count = 0;
   for (const [uid, chans] of huntCache) {
-    count += chans.filter(isListed).length;
+    count += chans.filter((ch) => isListed(ch)).length;
     huntCache.set(uid, clearAll(chans));
   }
   clearTimeout(undo?.timer);
@@ -376,7 +394,7 @@ async function handleMessage(ev) {
   const visible = await visibleChannels();
   let known = false;
   for (const [uid, chans] of huntCache) {
-    const r = applyMessage(chans, ev, { visible, markers, selfId: null });
+    const r = applyMessage(chans, ev, { visible, markers, selfId });
     if (!r.known) continue;
     known = true;
     huntCache.set(uid, r.channels);
@@ -1128,6 +1146,9 @@ async function resetDashboardState() {
   markersVersion++;
   huntCache.clear();
   huntFailed.clear();
+  selfId = null; // the old origin's user
+  clearTimeout(graceTimer);
+  graceTimer = null;
   portHunt.clear();
   peeks.clear();
   misses.clear();

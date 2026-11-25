@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   PER_PAGE,
+  SOLVED_GRACE_MS,
   isListed,
+  nextGraceEnd,
   listRows,
   paginate,
   totals,
@@ -46,6 +48,49 @@ describe("isListed", () => {
     expect(isListed(ch({ unread: 0 }))).toBe(false);
     expect(isListed(ch({ solved: true, unread: 3 }))).toBe(false);
     expect(isListed(ch({ solved: true, newly_solved: true, unread: 0 }))).toBe(true);
+  });
+});
+
+describe("solved grace window", () => {
+  const solvedAt = "2026-11-24T15:00:00+00:00";
+  const at = (min) => Date.parse(solvedAt) + min * 60000;
+
+  it("keeps a solved chat's unread listed for ten minutes after the solve", () => {
+    expect(SOLVED_GRACE_MS).toBe(10 * 60000);
+    const c = ch({ solved: true, solved_at: solvedAt, unread: 2 });
+    expect(isListed(c, at(0))).toBe(true);
+    expect(isListed(c, at(9.9))).toBe(true);
+    expect(isListed(c, at(10))).toBe(false);
+    expect(isListed(c, at(30))).toBe(false);
+  });
+
+  it("needs unread messages, and a known solve time", () => {
+    expect(isListed(ch({ solved: true, solved_at: solvedAt, unread: 0 }), at(1))).toBe(false);
+    expect(isListed(ch({ solved: true, solved_at: null, unread: 2 }), at(1))).toBe(false);
+    expect(isListed(ch({ solved: true, solved_at: "not a time", unread: 2 }), at(1))).toBe(false);
+  });
+
+  it("listRows applies the window at the time it is given", () => {
+    const chans = [
+      ch({ channel_id: "a", solved: true, solved_at: solvedAt, unread: 1, last: last("5") }),
+      ch({ channel_id: "b", unread: 1, last: last("4") }),
+    ];
+    expect(listRows(chans, null, at(5)).map((r) => r.channel_id)).toEqual(["a", "b"]);
+    expect(listRows(chans, null, at(11)).map((r) => r.channel_id)).toEqual(["b"]);
+  });
+
+  it("nextGraceEnd is the soonest end among chats listed only by the window", () => {
+    const later = "2026-11-24T15:04:00+00:00";
+    const chans = [
+      ch({ channel_id: "a", solved: true, solved_at: later, unread: 1 }),
+      ch({ channel_id: "b", solved: true, solved_at: solvedAt, unread: 1 }),
+      ch({ channel_id: "c", solved: true, solved_at: "2026-11-24T14:00:00+00:00", unread: 1 }), // already over
+      ch({ channel_id: "d", solved: true, solved_at: solvedAt, unread: 0 }), // nothing to show
+      ch({ channel_id: "e", unread: 3 }),
+    ];
+    expect(nextGraceEnd(chans, at(1))).toBe(at(10));
+    expect(nextGraceEnd(chans, at(10))).toBe(Date.parse(later) + SOLVED_GRACE_MS);
+    expect(nextGraceEnd(chans, at(20))).toBeNull();
   });
 });
 
