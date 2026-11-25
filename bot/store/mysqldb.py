@@ -798,14 +798,14 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         return self.construct_puzzles([row])[0]
 
     def construct_puzzles(self, rows) -> List[PuzzleData]:
-        """Hydrate many rows in a fixed 4 queries, not 4 *per row* (T5).
+        """Hydrate many rows in a fixed 5 queries, not 5 *per row* (T5).
 
         The per-puzzle path ran get_tags/get_additional_sheets/get_is_target/
         get_is_minimeta for every row, so a 100-puzzle hunt cost ~400 sequential
         round-trips -- and these are synchronous calls on the gateway thread, so
         the event loop is blocked for all of them. The list paths below all come
-        through here; the four hydrators fan the whole batch into one IN (...)
-        query each.
+        through here; the five hydrators (tags, additional sheets, is_target,
+        is_minimeta, answers) fan the whole batch into one IN (...) query each.
         """
         puzzles = [PuzzleData.import_dict(row) for row in rows]
         if not puzzles:
@@ -1146,6 +1146,14 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         the diff below is the ONLY thing that persists membership. Mutating
         puzzle.tags without puzzle.tag_edges (via add_edge/remove_edge) writes
         nothing.
+
+        puzzle.answers (puzzle_answers rows) is reconciled the same way -- delete the
+        rows not in the list, UPDATE rows with id > 0, INSERT rows with id 0 -- and
+        with the same caveat: non-atomic, self-correcting on the next dirty commit.
+        It runs ONLY when `answers is not None and answers_dirty`. Gated so that an
+        ordinary commit costs no extra queries, and so a stale or unloaded object
+        (answers None, or a snapshot that never set the flag) cannot delete answers
+        another writer added since it was read.
         """
         super(MySQLPuzzleJsonDb, self).commit(puzzle)
         cursor = self.mydb.dict_cursor()
@@ -1170,6 +1178,8 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                 "ON DUPLICATE KEY UPDATE edge_type = VALUES(edge_type)",
                 (gid, puzzle.id, edge),
             )
+        # Answers reconcile: gated on the dirty flag (see docstring); non-atomic,
+        # self-correcting on the next dirty commit, like the tags diff above.
         if puzzle.answers is not None and puzzle.answers_dirty:
             keep = [a.id for a in puzzle.answers if a.id > 0]
             if keep:
