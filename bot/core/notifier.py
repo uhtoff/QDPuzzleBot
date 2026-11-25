@@ -380,9 +380,12 @@ def build_solved_embed(emoji, puzzle, follow_up):
     this module's cog-unavailable fallback — a wording/emoji change had to be
     made in three places). Only the Follow-up text is caller-specific (bang vs.
     dashboard copy is deliberately different)."""
-    embed = __import__("discord").Embed(
-        title="PUZZLE SOLVED!",
-        description=f"{emoji} :partying_face: Great work! Marked the solution as `{puzzle.solution}`",
-    )
+    discord = __import__("discord")
+    description = f"{emoji} :partying_face: Great work! Marked the solution as `{puzzle.solution}`"
+    # Who solved it (migration 063): a dashboard solve has no !s message above it.
+    solver = getattr(puzzle, "solved_by", None)
+    if solver:
+        description += f"\nSolved by **{discord.utils.escape_markdown(solver)}**"
+    embed = discord.Embed(title="PUZZLE SOLVED!", description=description)
     embed.add_field(name="Follow-up", value=follow_up)
     return embed
