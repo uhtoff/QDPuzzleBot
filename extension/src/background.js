@@ -10,7 +10,7 @@ import { createPageTabs, pageTabsFor } from "./lib/pageTabs.js";
 import { notificationId, parseNotificationId, shouldNotify } from "./lib/notify.js";
 import { createNameCache, resolveName } from "./lib/channelNames.js";
 import { notificationText } from "./lib/discordText.js";
-import { createMarkers, snowflakeAt } from "./lib/readMarkers.js";
+import { clockSkew, createMarkers, snowflakeAt } from "./lib/readMarkers.js";
 import { applyMessage, badgeCount, badgeText, clearAll, clearChannel, isListed, listRows, nextGraceEnd, peekPuzzle, totals } from "./lib/unreadList.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
 import { panelWindow } from "./lib/panelWindow.js";
@@ -48,7 +48,13 @@ let markersSaveTimer = null;
 const huntCache = new Map(); // huntUid -> channels[]
 const portHunt = new Map(); // port -> the (unarchived) hunt its panel last showed
 const peeks = new Map(); // port -> {huntUid, channelId}: a chat shown instead of the tab's
-const misses = new Set(); // channel ids no cached hunt knows, until the next board event
+// Channel ids no cached hunt lists (a mini-puzzle's thread, a hunt nobody has open). Each
+// is asked about once; a channel that later joins a list is found there, not here.
+const misses = new Set();
+// The server's clock minus this machine's (ms), from the last unread response. Markers
+// and solve times are judged on the server, so "now" for them is nowMs(), not Date.now().
+let clockSkewMs = 0;
+const nowMs = () => Date.now() + clockSkewMs;
 // The dashboard user's Discord id (a string), from the unread response: their own live
 // messages are read, as the server already counts them. null until the first fetch.
 let selfId = null;
@@ -136,7 +142,7 @@ async function loadMarkers() {
   markers = createMarkers(got?.[MARKERS_KEY]?.[origin]);
   markersOrigin = origin;
   // First run: everything already said counts as read.
-  if (markers.ensureBaseline(Date.now())) await saveMarkersNow();
+  if (markers.ensureBaseline(nowMs())) await saveMarkersNow();
 }
 
 async function saveMarkersNow() {
@@ -146,7 +152,7 @@ async function saveMarkersNow() {
   if (!origin) return;
   const got = await chrome.storage.local.get({ [MARKERS_KEY]: {} }).catch(() => null);
   if (!got) return;
-  const all = { ...(got[MARKERS_KEY] ?? {}), [origin]: markers.request() };
+  const all = { ...(got[MARKERS_KEY] ?? {}), [origin]: markers.stored() };
   await chrome.storage.local.set({ [MARKERS_KEY]: all }).catch(() => {});
 }
 
@@ -167,7 +173,9 @@ async function doFetchUnread(uid) {
   const version = markersVersion;
   const origin = markersOrigin;
   const known = huntCache.get(uid);
+  const sent = Date.now();
   const res = await apiSend(huntUnreadPath(uid), "POST", markers.request(known?.map((c) => c.channel_id)));
+  const skew = clockSkew(res?.server_time_ms, sent, Date.now());
   if (origin !== markersOrigin) return "done"; // the dashboard changed meanwhile
   if (version !== markersVersion) return "stale"; // marked all read meanwhile: ask again
   if (!res || res.authRequired || res.error || !Array.isArray(res.channels)) {
@@ -177,8 +185,9 @@ async function doFetchUnread(uid) {
   }
   huntFailed.delete(uid);
   if (typeof res.self_id === "string") selfId = res.self_id;
+  if (skew !== null) clockSkewMs = skew;
   const before = new Map((huntCache.get(uid) ?? []).map((c) => [c.channel_id, c]));
-  const now = snowflakeAt(Date.now());
+  const now = snowflakeAt(nowMs());
   // The server sends no solve time: a solve sorts from when it was first seen.
   huntCache.set(
     uid,
@@ -225,7 +234,7 @@ function peekInfo(port, view, chans) {
 async function pushUnread() {
   await ready;
   let moved = false;
-  const now = Date.now();
+  const now = nowMs();
   for (const port of [...ports.keys()]) {
     if (typeof ports.get(port) !== "number") continue;
     const view = await portView(port);
@@ -268,7 +277,7 @@ function scheduleGraceEnd(now) {
     const end = nextGraceEnd(chans, now);
     if (end !== null && (soonest === null || end < soonest)) soonest = end;
   }
-  if (soonest !== null) graceTimer = setTimeout(pushUnread, Math.max(0, soonest - Date.now()) + 50);
+  if (soonest !== null) graceTimer = setTimeout(pushUnread, Math.max(0, soonest - nowMs()) + 50);
 }
 
 function notePortHunt(port, puzzle) {
@@ -326,12 +335,13 @@ async function gotoChat(port, huntUid, channelId) {
 }
 
 function markAllRead() {
-  const prev = markers.markAll(Date.now());
+  const now = nowMs();
+  const prev = markers.markAll(now);
   markersVersion++;
   const caches = new Map(huntCache);
   let count = 0;
   for (const [uid, chans] of huntCache) {
-    count += chans.filter((ch) => isListed(ch)).length;
+    count += chans.filter((ch) => isListed(ch, now)).length;
     huntCache.set(uid, clearAll(chans));
   }
   clearTimeout(undo?.timer);
@@ -369,7 +379,6 @@ function boardChanged(uid) {
     uid,
     setTimeout(() => {
       boardTimers.delete(uid);
-      misses.clear();
       fetchUnread(uid);
     }, 1500),
   );
@@ -1147,6 +1156,7 @@ async function resetDashboardState() {
   huntCache.clear();
   huntFailed.clear();
   selfId = null; // the old origin's user
+  clockSkewMs = 0; // the old origin's clock
   clearTimeout(graceTimer);
   graceTimer = null;
   portHunt.clear();

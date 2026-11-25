@@ -21,6 +21,16 @@ export function maxId(...ids) {
   return best;
 }
 
+// How far the server's clock is ahead of this machine's (ms), from a response's
+// `server_time_ms` and the local times its request was sent and answered; null when
+// the response carries none. Markers and solve times are compared on the server, so
+// "now" must be the server's now: a fast local clock would otherwise mark messages
+// and solves of the next few minutes as already read.
+export function clockSkew(serverMs, sentMs, receivedMs) {
+  if (typeof serverMs !== "number" || !Number.isFinite(serverMs)) return null;
+  return Math.round(serverMs - (sentMs + receivedMs) / 2);
+}
+
 // `initial` is a stored {baseline, read}; anything malformed in it is dropped.
 export function createMarkers(initial) {
   let baseline = isId(initial?.baseline) ? initial.baseline : null;
@@ -59,6 +69,13 @@ export function createMarkers(initial) {
       read = { ...(prev?.read ?? {}) };
     },
     isUnread: (channelId, messageId) => BigInt(messageId) > BigInt(effective(channelId)),
+    // What to persist: every marker that still says something (above the baseline).
+    // Not request(): its cap is the server's limit on one request, and storing the
+    // capped set would forget the older markers for good.
+    stored() {
+      const base = baseline ?? "0";
+      return { baseline: base, read: Object.fromEntries(Object.entries(read).filter(([, id]) => BigInt(id) > BigInt(base))) };
+    },
     // What the server needs: entries at or below the baseline add nothing. Limit to
     // `channelIds` (one hunt's chats) when known; past the server's cap keep the
     // newest, since an older marker matters least.

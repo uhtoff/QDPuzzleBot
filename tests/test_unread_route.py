@@ -115,3 +115,13 @@ async def test_unread_returns_the_users_own_id_as_a_string():
             resp = await c.post(URL, json={"baseline": "100", "read": {}})
             body = await resp.get_json()
     assert body["self_id"] == "123456789012345678"
+
+
+async def test_unread_returns_the_servers_clock_in_ms():
+    """The extension corrects its own clock by this: markers it makes from "now"
+    are compared here against message ids and solve times."""
+    async with _ur_client() as c:
+        with patch("bot.web.api.time.time", return_value=1700000000.25):
+            resp = await c.post(URL, json={"baseline": "100", "read": {}})
+            body = await resp.get_json()
+    assert body["server_time_ms"] == 1700000000250

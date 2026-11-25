@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DISCORD_EPOCH_MS, MAX_READ, snowflakeAt, maxId, createMarkers } from "../src/lib/readMarkers.js";
+import { DISCORD_EPOCH_MS, MAX_READ, snowflakeAt, maxId, createMarkers, clockSkew } from "../src/lib/readMarkers.js";
 
 const T = 1700000000000; // 2023-11-14T22:13:20Z
 const snow = (ms) => String((BigInt(ms) - 1420070400000n) << 22n);
@@ -93,6 +93,16 @@ describe("createMarkers", () => {
     const m = createMarkers({ baseline: "100", read: { a: "150", b: "160", c: "170" } });
     expect(m.request(["a", "c", "zz"])).toEqual({ baseline: "100", read: { a: "150", c: "170" } });
   });
+  it("stored keeps every marker above the baseline, past the request cap", () => {
+    const read = { old: "100", below: "50" };
+    for (let i = 1; i <= MAX_READ + 2; i++) read["c" + i] = String(1000 + i);
+    const out = createMarkers({ baseline: "100", read }).stored();
+    expect(out.baseline).toBe("100");
+    expect(Object.keys(out.read).length).toBe(MAX_READ + 2);
+    expect(out.read.c1).toBe("1001");
+    expect(out.read.old).toBeUndefined();
+    expect(out.read.below).toBeUndefined();
+  });
   it("request keeps only the newest markers past the server's cap", () => {
     const read = {};
     for (let i = 1; i <= MAX_READ + 2; i++) read["c" + i] = String(1000 + i);
@@ -101,5 +111,17 @@ describe("createMarkers", () => {
     expect(out.c1).toBeUndefined();
     expect(out.c2).toBeUndefined();
     expect(out["c" + (MAX_READ + 2)]).toBe(String(1000 + MAX_READ + 2));
+  });
+});
+
+describe("clockSkew", () => {
+  it("is the server's lead over the middle of the round trip", () => {
+    expect(clockSkew(10500, 10000, 10200)).toBe(400);
+    expect(clockSkew(9000, 10000, 10200)).toBe(-1100);
+  });
+  it("is null when the response has no usable server time", () => {
+    expect(clockSkew(undefined, 1, 2)).toBeNull();
+    expect(clockSkew("10500", 1, 2)).toBeNull();
+    expect(clockSkew(NaN, 1, 2)).toBeNull();
   });
 });

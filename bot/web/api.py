@@ -296,7 +296,11 @@ async def hunt_unread(uid):
         solve_markers=unread.effective_markers(ids, baseline, read, {})),
         # A string: a Discord id outgrows a JS number. The extension uses it to
         # treat the user's own live messages as read, as `own` does here.
-        "self_id": str(user["id"])})
+        "self_id": str(user["id"]),
+        # This server's clock. Read markers are made in the extension but judged
+        # here (against message ids and solve times), so it corrects its own
+        # clock by this rather than trusting the machine it runs on.
+        "server_time_ms": int(time.time() * 1000)})
 
 
 @api_bp.route("/channels/<int:channel_id>/messages")
