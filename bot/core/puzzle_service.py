@@ -3346,6 +3346,20 @@ class PuzzleService:
         except Exception:
             logger.exception("orphan cleanup: failed to delete DB row for %s", puzzle)
 
+    def _raise_on_channel_clash(self, guild, hunt, round_data, name, is_meta, category):
+        """Raise ChannelNameClash if a new puzzle called *name* would share its
+        channel name with a text channel already in *category* (None: no check)."""
+        if category is None:
+            return
+        probe = PuzzleData(name=name, hunt_id=hunt.id)
+        probe.is_target = bool(is_meta)
+        if round_data is not None:
+            probe.tags.append(round_data.id)
+        want = self.desired_channel_name(
+            guild, hunt, probe, group=round_data if is_meta else None)
+        if text_channel_named(category, want) is not None:
+            raise ChannelNameClash(want, free_suffixed_name(category, want))
+
     @pushes_board()
     async def create_puzzle(self, guild, hunt, round_data, name, is_meta=False, notifier=None,
                             on_channel_clash="suffix"):
@@ -3360,12 +3374,26 @@ class PuzzleService:
         with this puzzle's channel name (Discord allows duplicates; we don't,
         because a puzzle must own its channel):
           "ask"    raise ChannelNameClash before any sheet/DB work (interactive
-                   callers prompt, then retry with "suffix");
+                   callers prompt, then retry with "suffix"). When the puzzle
+                   fits an existing category this is also before any layout
+                   change; only a create that must split/allocate first is
+                   checked after that (the new layout is needed to know
+                   which category it lands in);
           "suffix" use the next free ``-N`` name;
           "adopt"  reuse the existing channel by name, leaving the puzzle
                    unlinked for the caller to link (_promote_group_to_target).
         A clash that only appears after the "ask" check (a race) is suffixed.
         """
+        if on_channel_clash == "ask":
+            # Ask BEFORE the overflow relief and category pick below, which can
+            # extract a meta or allocate a category: a Cancel must not leave the
+            # layout changed for a puzzle that was never made.
+            self._raise_on_channel_clash(
+                guild, hunt, round_data, name, is_meta,
+                category_layout.peek_unsolved_category(
+                    guild, *((round_data, TagGroupCategoryDb) if round_data is not None
+                             else (hunt, HuntCategoryDb))))
+
         # Auto-extract a channel-home meta if this create would otherwise
         # overflow (Plan 4). Best-effort; a Case-A extraction flips
         # round_data.category_id so the picks below see a real category.

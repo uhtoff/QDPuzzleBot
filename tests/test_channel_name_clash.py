@@ -181,6 +181,7 @@ async def _create(svc, guild, goc, cat, mode):
     notifier = MagicMock(); notifier.welcome = AsyncMock()
     with patch.object(ps, "PuzzleJsonDb") as pdb, \
          patch.object(ps.category_layout, "pick_unsolved_category", AsyncMock(return_value=cat)), \
+         patch.object(ps.category_layout, "peek_unsolved_category", return_value=cat), \
          patch.object(ps, "get_or_create_channel", goc), \
          patch.object(ps, "solve_divider_position", return_value=False):
         pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
@@ -290,3 +291,43 @@ async def test_rename_ask_restores_the_stored_channel_name():
             await svc.rename_puzzle(guild, _hunt_obj(), puz, "Level", on_channel_clash="ask")
     assert exc.value.channel_name == "level"
     assert (puz.name, puz.channel_name) == ("Level 1", "level-1")
+
+
+async def test_create_ask_raises_before_any_layout_change():
+    """The puzzle fits its category as it stands, so the clash is known without
+    picking: neither the overflow relief nor the (splitting/allocating) category
+    pick may run before the user has answered."""
+    cat = _cat(900, ("general", 111))
+    cat.channels = cat.text_channels
+    svc, gsheet, guild, goc = _create_env(cat)
+    pick = AsyncMock(return_value=cat)
+    with patch.object(ps, "PuzzleJsonDb"), \
+         patch.object(ps, "HuntCategoryDb") as hcd, \
+         patch.object(svc, "_maybe_relieve_overflow", new_callable=AsyncMock) as relieve, \
+         patch.object(ps.category_layout, "pick_unsolved_category", pick):
+        hcd.get_for_group.return_value = []
+        with pytest.raises(ChannelNameClash) as exc:
+            await svc.create_puzzle(guild, _hunt_obj(), None, "General", on_channel_clash="ask")
+    assert (exc.value.channel_name, exc.value.suggested) == ("general", "general-1")
+    relieve.assert_not_awaited(); pick.assert_not_awaited()
+
+
+def test_peek_unsolved_category_matches_a_pick_that_changes_nothing():
+    from bot.core import category_layout as cl
+    home = _cat(900, ("a", 1)); home.channels = home.text_channels
+    full = _cat(901); full.channels = [SimpleNamespace(name=f"p{i}") for i in range(cl.CATEGORY_SOFT_LIMIT)]
+    spare = _cat(902, ("b", 2)); spare.channels = spare.text_channels
+    guild = MagicMock(); guild.categories = [home, full, spare]
+    dao = MagicMock()
+    owner = SimpleNamespace(id=5, category_id=900)
+    # No rows and room at home: home. No rows and home full: a pick would split.
+    dao.get_for_group.return_value = []
+    assert cl.peek_unsolved_category(guild, owner, dao) is home
+    assert cl.peek_unsolved_category(guild, SimpleNamespace(id=5, category_id=901), dao) is None
+    # Rows: the first unsolved category with room, in seq order; solved rows ignored.
+    row = lambda cid, role, seq: SimpleNamespace(category_id=cid, role=role, seq=seq)  # noqa: E731
+    dao.get_for_group.return_value = [row(902, cl.ROLE_UNSOLVED, 2), row(901, cl.ROLE_UNSOLVED, 1),
+                                      row(900, cl.ROLE_SOLVED, 1)]
+    assert cl.peek_unsolved_category(guild, owner, dao) is spare
+    dao.get_for_group.return_value = [row(901, cl.ROLE_UNSOLVED, 1)]
+    assert cl.peek_unsolved_category(guild, owner, dao) is None
