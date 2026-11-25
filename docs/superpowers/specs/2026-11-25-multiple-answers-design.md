@@ -122,7 +122,7 @@ Commands (user decisions, 2026-11-25):
   with no answers and the default count it behaves exactly as today.
 - **`!partial ANSWER`** = add this answer, *more to come*: adds it without solving. If adding it
   would meet the expected count, the count goes up by one (unconfirmed, shown `2?`) so the puzzle
-  stays unsolved. *My reading:* if the count is confirmed and this answer meets it, the puzzle
+  stays unsolved; otherwise the count is left alone (confirmed by user). If the count is confirmed and this answer meets it, the puzzle
   solves, since the team has said how many answers there are.
 - **`!add_answer ANSWER`** = just add the answer; if that reaches the expected count the puzzle is
   solved.
