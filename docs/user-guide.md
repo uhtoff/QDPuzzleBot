@@ -587,6 +587,19 @@ Options and click **Allow access to Google Sheets**.
   default Discord avatar in the panel and dashboard transcript; later ones are fine.
 - **Attachments** show as links (the file name) that open in a new tab; ones the bot has not
   downloaded yet show as plain names.
+- **Unread puzzles list:** the top of the panel lists the hunt's chats with new messages
+  (every puzzle and the general channel, not only ones you have open), newest first, five to
+  a page, with a count, the latest message and how long ago. A puzzle that has just been
+  solved shows a tick and "Solved: ANSWER (who solved it)", and stays listed for ten minutes
+  after the solve; messages arriving after the solve show on a third line. Click the heading
+  to fold the list away.
+  - **Click a row** to read that chat in the panel without leaving your tab. A bar says
+    you're looking at a different chat: **← Back to** returns to your tab's puzzle, **Go to
+    puzzle ↗** goes to the one you're reading. **Ctrl/cmd-click, middle-click or ↗** on a row goes straight to
+    the puzzle's tab, opening its sheet if needed.
+  - **Mark all read** clears the list (with **Undo** for a few seconds).
+  - On a tab outside the hunt (any other website), the list stays, with the hunt's name above
+    it.
 - **Unread badge:** counts new messages in puzzles you have open in tabs, except the one
   showing in an open panel.
 - **Desktop notifications** (Options; both off by default): **Solves** notifies once for
