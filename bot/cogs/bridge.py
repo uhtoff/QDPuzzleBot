@@ -146,6 +146,36 @@ class MessageBridge(commands.Cog):
         (self._puzzle_channels if is_puzzle else self._non_puzzle_channels).add(channel_id)
         return is_puzzle
 
+    @staticmethod
+    def _lookup_hunt_channel(channel_id: int) -> bool:
+        # See _load_puzzle_channels above: dedicated connection, not the shared `mydb`.
+        from bot.store import bridge_channels_conn
+        with _CHANNELS_CONN_LOCK:
+            cur = bridge_channels_conn.dict_cursor()
+            try:
+                cur.execute("SELECT 1 FROM hunts WHERE channel_id=%s LIMIT 1", (channel_id,))
+                return cur.fetchone() is not None
+            finally:
+                cur.close()
+
+    async def _is_bridged_channel(self, channel_id: int) -> bool:
+        """A puzzle channel or a hunt's general channel. Both are captured on
+        their first message: a hunt made a moment ago is not in _hunt_channels
+        until the next refresh, and without the lazy lookup its first minute of
+        chat would never be mirrored. The negative cache (cleared on refresh)
+        keeps an unrelated channel to one hunt lookup per refresh."""
+        if channel_id in self._hunt_channels:
+            return True
+        known_negative = channel_id in self._non_puzzle_channels
+        if await self._is_puzzle_channel(channel_id):
+            return True
+        if known_negative:
+            return False
+        if await asyncio.to_thread(self._lookup_hunt_channel, channel_id):
+            self._hunt_channels.add(channel_id)
+            return True
+        return False
+
     def _kind_for(self, message: discord.Message) -> int:
         if message.author.id == self.bot.application_id:
             return KIND_THIS_BOT
@@ -165,8 +195,7 @@ class MessageBridge(commands.Cog):
             return  # bridge disabled / not started — stay inert
         if message.guild is None:
             return
-        if (message.channel.id not in self._hunt_channels
-                and not await self._is_puzzle_channel(message.channel.id)):
+        if not await self._is_bridged_channel(message.channel.id):
             return
         author_name = (getattr(message.author, "display_name", None) or message.author.name)[:255]
         avatar = getattr(getattr(message.author, "display_avatar", None), "url", None)
