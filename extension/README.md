@@ -39,8 +39,11 @@ sidebar). `manifest.json` is the Chrome manifest; the Firefox one is generated f
   `scp <user>@<build-host>:projects/puzzbot/extension/dist/puzzle-chat-firefox-<version>.zip $HOME\`.
   In Firefox there, open `about:debugging#/runtime/this-firefox`, **Load Temporary
   Add-on…** and pick the zip itself (no unpacking needed). It stays loaded until Firefox
-  restarts. After a rebuild, copy the zip again, **Remove** the add-on and load the new zip;
-  **Reload** re-reads the old file.
+  restarts. After a rebuild, **Remove** the add-on, copy the zip again (Firefox holds the
+  loaded zip open, so copying over it first fails) and load the new zip; **Reload** re-reads
+  the old file. **Remove** uninstalls it, which drops its settings and granted access: open
+  Options again, set the dashboard address (e.g. the test site) and allow access, or hunt
+  boards show "Not a puzzle sheet." and the unread list stays empty.
 - **Release:** upload `dist/puzzle-chat-firefox-<version>.zip` to addons.mozilla.org as an
   **unlisted** add-on (Mozilla signs it; it is not searchable). Notes for the submission
   form: `store/amo-notes.md`. Then publish the signed file from the live dashboard:
