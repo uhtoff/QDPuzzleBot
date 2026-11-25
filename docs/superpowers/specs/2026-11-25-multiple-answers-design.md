@@ -103,10 +103,9 @@ Situations 2 and 4 are rare; they should be *modellable*, not optimised.
   fragments), set `expected_answers` to the fragment count for solved puzzles (so nothing becomes
   un-solved) and to fragment count + 1, unconfirmed, for partially solved puzzles (so nothing
   becomes solved), and create a placement for every (answer × the puzzle's existing `feeds` targets) —
-  i.e. today's behaviour, where every answer goes to every feeds target, is preserved exactly. The
-  ✅ placeholder from `!mark_as_complete` becomes one answer row with `no_meta` true — *builder's
-  call* vs. `expected_answers = 0`; either must keep the puzzle solved and out of the unassigned
-  count. Must run on MariaDB 10.11 and MySQL 8.0 (CI) — no MariaDB-only syntax.
+  i.e. today's behaviour, where every answer goes to every feeds target, is preserved exactly. A
+  puzzle whose solution is the ✅ placeholder migrates to **no answer rows and
+  `expected_answers = 0`** (user decision), staying solved and out of the unassigned count. Must run on MariaDB 10.11 and MySQL 8.0 (CI) — no MariaDB-only syntax.
 
 ### Solving rules
 
@@ -134,6 +133,12 @@ Commands (user decisions, 2026-11-25):
   shows the same three choices in its solve modal. Timeout = cancel.
 - `!add_solution` / `!change_solution` stay as aliases (add answer / replace one answer); a new
   `!remove_answer` removes one. Exact replace-one-of-several UX is the builder's call.
+- **`!mark_as_complete` / `!complete`** sets `expected_answers` to 0 (user decision): the puzzle
+  is solved with no answers. Wherever an answer would be displayed (sheet header, meta tables,
+  Feeders table, dashboard, Discord) it shows a ✅ instead. A completed puzzle has nothing to
+  feed: it never counts as unassigned and isn't counted as Assigned on any meta. Its Feeders-table
+  row (if it had a placeholder) stays, shows ✅, and is hidden by the default filter (*my call*),
+  so notes written against it survive. ✅ is no longer stored in `puzzles.solution`.
 - **Backsolved** stays a label on the puzzle, as today.
 - **Unsolve** removes all the puzzle's answers (and so their placements). In the Feeders table the
   first answer row re-keys back to the unsolved placeholder, keeping its Notes; further answer rows
@@ -199,7 +204,7 @@ Commands (user decisions, 2026-11-25):
 12 │ Puzzle 4    KIWI      4                                    fire?        │
 13 │ Puzzle 7    FIG       3                                                 │
 14 │ Puzzle 7    LEMON     5       Fire meta                    (hidden)     │
-15 │ Puzzle 9    ✅                                     ✓       interaction  │
+15 │ Puzzle 9    ✅                                             interaction  │
 16 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
