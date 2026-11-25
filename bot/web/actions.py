@@ -546,7 +546,8 @@ async def solve_puzzle(puzzle_id):
         warning = None
         try:
             if mode == "full":
-                await cog.service.solve(guild, hunt_obj, puzzle, solution)
+                await cog.service.solve(guild, hunt_obj, puzzle, solution,
+                                        solved_by=_display_name(current_user() or {}))
             elif mode == "partial":
                 await cog.service.add_partial(guild, hunt_obj, puzzle, solution)
             elif mode == "change":

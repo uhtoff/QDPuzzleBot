@@ -58,6 +58,8 @@ class PuzzleData:
     notes: List[str] = field(default_factory=list)
     start_time: Optional[datetime.datetime] = None
     solve_time: Optional[datetime.datetime] = None
+    # Solver's display name at the solve (migration 063); None when unsolved/unknown.
+    solved_by: Optional[str] = None
     tags: List[int] = field(default_factory=list)
     tag_edges: Dict[int, set] = field(default_factory=dict)  # tag_group_id -> set of edge_type
     is_target: bool = False  # transient: derived at load from tag_group.target_puzzle_id (not a column)

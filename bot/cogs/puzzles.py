@@ -1943,7 +1943,8 @@ class Puzzles(commands.Cog):
         sheet_warning = None
         try:
             await self.service.solve_mini_by_number(
-                ctx.guild, self.get_hunt(ctx), puzzle.id, number, solution
+                ctx.guild, self.get_hunt(ctx), puzzle.id, number, solution,
+                solved_by=ctx.author.display_name,
             )
         except ValueError as exc:
             return await ctx.send(f":x: {exc}")
@@ -4042,7 +4043,8 @@ class Puzzles(commands.Cog):
 
         sheet_warning = None
         try:
-            applied = await self.service.solve(self.get_guild(ctx), hunt, puzzle, solution)
+            applied = await self.service.solve(self.get_guild(ctx), hunt, puzzle, solution,
+                                               solved_by=ctx.author.display_name)
         except SheetRefreshError as exc:
             # The solve is fully applied; one or more meta sheets are stale (and
             # badged on the dashboard). Tell the channel rather than tracebacking.

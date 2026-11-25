@@ -96,7 +96,7 @@ def build_channels(hunt, puzzles, guild_snowflake, markers, counts, lasts, *, so
         out.append(_entry(
             gid, counts, lasts, kind="general", puzzle_id=None, name=f"{hunt['name']} (general)",
             rounds=[], solved=False, solution=None, newly_solved=False, solved_at=None,
-            sheet_url=None,
+            solved_by=None, sheet_url=None,
             discord_url=(f"https://discord.com/channels/{guild_snowflake}/{gid}"
                          if guild_snowflake else None)))
     for p in puzzles:
@@ -112,6 +112,8 @@ def build_channels(hunt, puzzles, guild_snowflake, markers, counts, lasts, *, so
             cid, counts, lasts, kind="puzzle", puzzle_id=p["id"], name=p["name"],
             rounds=[r["name"] for r in p.get("rounds") or []], solved=solved,
             solution=p.get("solution"), newly_solved=newly,
-            solved_at=p.get("solve_time") if solved else None, sheet_url=p.get("sheet_url"),
+            solved_at=p.get("solve_time") if solved else None,
+            solved_by=(p.get("solved_by") or None) if solved else None,
+            sheet_url=p.get("sheet_url"),
             discord_url=p.get("discord_url")))
     return out

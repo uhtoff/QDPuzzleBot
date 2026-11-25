@@ -222,6 +222,11 @@ describe("rowText", () => {
     expect(t).toBe("Solved: PARADIDDLE");
     expect(t).not.toContain("Tom");
   });
+  it("names the solver in brackets when known", () => {
+    expect(rowText(ch({ solved: true, newly_solved: true, solution: "MINE", solved_by: "Uhtoff" }))).toBe("Solved: MINE (Uhtoff)");
+    expect(rowText(ch({ solved: true, newly_solved: true, solution: null, solved_by: "Uhtoff" }))).toBe("Solved (Uhtoff)");
+    expect(rowText(ch({ solved: true, newly_solved: true, solution: "MINE", solved_by: null }))).toBe("Solved: MINE");
+  });
   it("otherwise author and message", () => {
     expect(rowText(ch({ unread: 1, last: last("5") }))).toBe("Mina: grid refs are OS");
   });

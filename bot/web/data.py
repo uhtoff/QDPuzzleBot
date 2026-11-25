@@ -396,7 +396,7 @@ async def get_hunt_puzzles(hunt, guild_snowflake):
         "EXISTS(SELECT 1 FROM tag_group mt WHERE mt.target_puzzle_id = puzzles.id) AS is_target, "
         "puzzles.status, puzzles.solved, puzzles.on_solved_sheet, puzzles.solution, "
         "puzzles.priority, puzzles.puzzle_type, puzzles.notes, "
-        "puzzles.start_time, puzzles.solve_time, puzzles.voice_channel_id, "
+        "puzzles.start_time, puzzles.solve_time, puzzles.solved_by, puzzles.voice_channel_id, "
         "tag_group.id AS tag_group_id, tag_group.name AS tag_group_name, "
         "tag_group.target_puzzle_id AS tag_group_target_puzzle_id, tag_group.group_code AS tag_group_group_code, "
         "tag_group.type AS tag_group_type, tags.edge_type AS tag_edge_type, "
@@ -444,6 +444,7 @@ async def get_hunt_puzzles(hunt, guild_snowflake):
                 "notes": _load_notes(row["notes"]),
                 "start_time": _iso(row.get("start_time")),
                 "solve_time": _iso(row.get("solve_time")),
+                "solved_by": row.get("solved_by"),
                 "last_activity": (
                     {
                         "at": _iso(row["last_human_message_at"]),

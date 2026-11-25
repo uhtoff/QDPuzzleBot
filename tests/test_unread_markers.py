@@ -89,13 +89,14 @@ def test_effective_markers_takes_the_largest_per_channel():
 HUNT = {"name": "Saltmarsh", "channel_id": 800}
 GUILD = 777
 PUZZLE_KEYS = {"channel_id", "kind", "puzzle_id", "name", "rounds", "solved", "solution",
-               "newly_solved", "solved_at", "sheet_url", "discord_url", "unread", "last"}
+               "newly_solved", "solved_at", "solved_by", "sheet_url", "discord_url", "unread",
+               "last"}
 
 
 def _bc_puz(**kw):
     """A puzzle as data.get_hunt_puzzles emits it (channel_id is a string there)."""
     base = {"id": 1, "name": "Alpha", "channel_id": "900", "rounds": [{"name": "R1"}],
-            "solved": False, "solution": None, "solve_time": None,
+            "solved": False, "solution": None, "solve_time": None, "solved_by": None,
             "sheet_url": "https://docs.google.com/spreadsheets/d/x/edit#gid=1",
             "discord_url": "https://discord.com/channels/777/900", "parent_puzzle_id": None}
     return {**base, **kw}
@@ -226,6 +227,20 @@ def test_build_channels_solved_at_is_the_solve_time_of_solved_puzzles_only():
     assert out["901"]["solved_at"] == solve
     assert out["902"]["solved_at"] is None
     assert out["800"]["solved_at"] is None
+
+
+def test_build_channels_solved_by_names_the_solver_of_solved_puzzles_only():
+    out = _bc_by_channel(_bc_build([
+        _bc_puz(id=1, channel_id="901", solved=True, solution="MINE",
+                solve_time=data._iso(T_A), solved_by="Uhtoff"),
+        _bc_puz(id=2, channel_id="902", solved=True, solution="OLD",
+                solve_time=data._iso(T_A), solved_by=None),        # solved before 063
+        _bc_puz(id=3, channel_id="903", solved=False, solved_by="Stale"),
+    ]))
+    assert out["901"]["solved_by"] == "Uhtoff"
+    assert out["902"]["solved_by"] is None
+    assert out["903"]["solved_by"] is None
+    assert out["800"]["solved_by"] is None
 
 
 def test_build_channels_entry_has_exactly_the_pinned_keys():

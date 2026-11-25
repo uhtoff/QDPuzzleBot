@@ -2,7 +2,7 @@ import { maxId } from "./readMarkers.js";
 
 // The unread list: channel entries as POST /api/hunts/<uid>/unread returns them
 // ({channel_id, kind, puzzle_id, name, rounds, solved, solution, newly_solved,
-// solved_at, sheet_url, discord_url, unread, last}), plus `solved_seq`, the snowflake of when
+// solved_at, solved_by, sheet_url, discord_url, unread, last}), plus `solved_seq`, the snowflake of when
 // the background first saw a channel as newly solved (the server sends no solve time).
 
 export const PER_PAGE = 5;
@@ -114,7 +114,10 @@ export const badgeText = (total) => (total <= 0 ? "" : total > 99 ? "99+" : Stri
 
 // The row's second line.
 export function rowText(ch) {
-  if (ch.newly_solved) return ch.solution ? "Solved: " + ch.solution : "Solved";
+  if (ch.newly_solved) {
+    const by = ch.solved_by ? " (" + ch.solved_by + ")" : "";
+    return (ch.solution ? "Solved: " + ch.solution : "Solved") + by;
+  }
   if (!ch.last) return "";
   const text = String(ch.last.content ?? "").replace(/\s+/g, " ").trim();
   return (ch.last.author_name ?? "") + ": " + text;

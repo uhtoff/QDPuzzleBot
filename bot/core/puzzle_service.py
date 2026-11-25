@@ -1748,7 +1748,7 @@ class PuzzleService:
             logger.exception("Failed to announce %s answer change for puzzle %s", kind, puzzle.id)
 
     @pushes_board()
-    async def solve(self, guild, hunt, puzzle, solution):
+    async def solve(self, guild, hunt, puzzle, solution, *, solved_by=None):
         """Mark a puzzle solved: set status/solution/solve_time, refresh metas,
         stamp the round solve_time if this is the round's meta, archive the sheet,
         and persist. RAISES on Sheets failure; edges decide tolerance and
@@ -1771,6 +1771,7 @@ class PuzzleService:
             puzzle.solution = solution
         puzzle.solved = True
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
+        puzzle.solved_by = solved_by
         PuzzleJsonDb.commit(puzzle)
         if not was_solved:
             await self._announce_to_fed(guild, puzzle, "solved", old_solution, puzzle.solution)
@@ -1872,6 +1873,7 @@ class PuzzleService:
         puzzle.solution = ""
         puzzle.solved = False
         puzzle.solve_time = None
+        puzzle.solved_by = None
 
         failed_puzzle_ids = []
         gsheet_cog = self._gsheet_cog(hunt)
@@ -3055,12 +3057,12 @@ class PuzzleService:
         """Return ordered list of mini-puzzle PuzzleData for a minimeta."""
         return PuzzleJsonDb.get_children(minimeta_id)
 
-    async def solve_mini_by_number(self, guild, hunt, minimeta_id, number, solution):
+    async def solve_mini_by_number(self, guild, hunt, minimeta_id, number, solution, *, solved_by=None):
         """Solve the Nth mini-puzzle (1-indexed) under the given minimeta puzzle id."""
         minis = self.get_minis(minimeta_id)
         if number < 1 or number > len(minis):
             raise ValueError(f"No mini #{number} — {len(minis)} mini(s) exist")
-        return await self.solve(guild, hunt, minis[number - 1], solution)
+        return await self.solve(guild, hunt, minis[number - 1], solution, solved_by=solved_by)
 
     async def unsolve_mini_by_number(self, guild, hunt, minimeta_id, number):
         """Unsolve the Nth mini-puzzle (1-indexed) under the given minimeta puzzle id."""
