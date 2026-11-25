@@ -13,6 +13,7 @@ import {
   badgeCount,
   badgeText,
   rowText,
+  rowTime,
   peekPuzzle,
 } from "../src/lib/unreadList.js";
 
@@ -246,6 +247,20 @@ describe("rowText", () => {
   });
   it("nothing to show", () => {
     expect(rowText(ch({ unread: 1, last: null }))).toBe("");
+  });
+});
+
+describe("rowTime", () => {
+  it("a Solved row is timed from the solve, not its last message", () => {
+    const c = ch({ solved: true, newly_solved: true, solved_at: "2026-11-24T15:30:00+00:00", last: last("5") });
+    expect(rowTime(c)).toBe("2026-11-24T15:30:00+00:00");
+  });
+  it("any other row is timed from its last message", () => {
+    expect(rowTime(ch({ unread: 1, last: last("5") }))).toBe("2026-11-24T14:10:00+00:00");
+    // late chatter after a solve you have seen: the message, not the solve
+    expect(rowTime(ch({ solved: true, solved_at: "2026-11-24T13:00:00+00:00", unread: 1, last: last("5") })))
+      .toBe("2026-11-24T14:10:00+00:00");
+    expect(rowTime(ch({ unread: 1, last: null }))).toBeNull();
   });
 });
 

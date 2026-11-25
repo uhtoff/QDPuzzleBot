@@ -123,6 +123,12 @@ export function rowText(ch) {
   return (ch.last.author_name ?? "") + ": " + text;
 }
 
+// When the row's time ("4m") counts from: a Solved row from the solve, else its last message.
+export function rowTime(ch) {
+  if (ch.newly_solved && ch.solved_at) return ch.solved_at;
+  return ch.last?.created_at ?? null;
+}
+
 // A peeked chat in the by-sheet lookup's shape, so the panel renders it like any other.
 export function peekPuzzle(ch, huntUid) {
   return {
