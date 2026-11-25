@@ -90,20 +90,20 @@ class TestBuildSolvedEmbedShared:
         assert ":tada:" in embed.description
         assert embed.fields[0].name == "Follow-up"
         assert embed.fields[0].value == "custom follow-up"
-        assert "Solved by" not in embed.description   # no solver recorded
+        assert "solved by" not in embed.description   # no solver recorded
 
     def test_names_the_solver_when_recorded(self):
         """A dashboard solve has no !s message above it: the embed says who solved."""
         puzzle = make_puzzle(id=1, solution="MINE")
         puzzle.solved_by = "Uhtoff"
         embed = build_solved_embed(":tada:", puzzle, "f")
-        assert embed.description.endswith("\nSolved by **Uhtoff**")
+        assert embed.description.endswith("\nMarked solved by **Uhtoff**")
 
     def test_solver_name_is_markdown_escaped(self):
         puzzle = make_puzzle(id=1, solution="MINE")
         puzzle.solved_by = "_under_*star*"
         embed = build_solved_embed(":tada:", puzzle, "f")
-        assert "Solved by **\\_under\\_\\*star\\***" in embed.description
+        assert "Marked solved by **\\_under\\_\\*star\\***" in embed.description
 
     @pytest.mark.asyncio
     async def test_web_post_solved_embed_uses_shared_builder(self):

@@ -385,7 +385,7 @@ def build_solved_embed(emoji, puzzle, follow_up):
     # Who solved it (migration 063): a dashboard solve has no !s message above it.
     solver = getattr(puzzle, "solved_by", None)
     if solver:
-        description += f"\nSolved by **{discord.utils.escape_markdown(solver)}**"
+        description += f"\nMarked solved by **{discord.utils.escape_markdown(solver)}**"
     embed = discord.Embed(title="PUZZLE SOLVED!", description=description)
     embed.add_field(name="Follow-up", value=follow_up)
     return embed
