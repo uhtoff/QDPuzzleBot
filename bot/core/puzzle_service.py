@@ -2967,8 +2967,14 @@ class PuzzleService:
         has the new channel name, "ask" raises ChannelNameClash before anything
         changes; "suffix" takes the next free ``-N`` name (see create_puzzle).
         """
-        old_name = puzzle.name
+        old_name, old_channel_name = puzzle.name, puzzle.channel_name
         puzzle.name = name
+        if clean_channel_name(old_name) != clean_channel_name(name):
+            # A -N on the stored channel name belongs to the OLD name (a clash
+            # suffix, or just "Level 1"); it says nothing about the new one.
+            # Without this, "Level 1" -> "Level" would read #level-1 as
+            # "level" + a kept clash suffix and never rename the channel.
+            puzzle.channel_name = None
         want = self.desired_channel_name(guild, hunt, puzzle)
         channel = (guild.get_channel(puzzle.channel_id)
                    if guild is not None and puzzle.channel_id else None)
@@ -2976,7 +2982,8 @@ class PuzzleService:
         if category is not None and text_channel_named(
                 category, want, exclude_id=getattr(channel, "id", None)) is not None:
             if on_channel_clash == "ask":
-                puzzle.name = old_name       # nothing changed yet: leave it as it was
+                # nothing changed yet: leave it as it was
+                puzzle.name, puzzle.channel_name = old_name, old_channel_name
                 raise ChannelNameClash(want, free_suffixed_name(category, want))
             want = free_suffixed_name(category, want)
         puzzle.channel_name = want

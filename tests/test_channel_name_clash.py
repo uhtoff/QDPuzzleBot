@@ -263,3 +263,30 @@ async def test_rename_does_not_clash_with_its_own_channel():
         await svc.rename_puzzle(guild, _hunt_obj(), puz, "General!", on_channel_clash="ask")
     rn.assert_not_awaited()
     assert puz.channel_name == "general-1"
+
+
+async def test_rename_dropping_a_trailing_number_renames_the_channel():
+    """'Level 1' -> 'Level': the old channel name #level-1 is the new clean name
+    plus -1, but that -1 came from the old NAME, not from a clash. The channel
+    must become #level, and a second puzzle shows the suffix is not kept."""
+    svc, guild, own = _rename_env(("level-1", 50), ("other", 111))
+    puz = make_puzzle(id=70, name="Level 1", channel_id=50)
+    puz.channel_name = "level-1"
+    with patch.object(ps, "PuzzleJsonDb"), \
+         patch.object(svc, "safe_rename", new_callable=AsyncMock) as rn:
+        await svc.rename_puzzle(guild, _hunt_obj(), puz, "Level", on_channel_clash="ask")
+    rn.assert_awaited_once_with(own, "level")
+    assert (puz.name, puz.channel_name) == ("Level", "level")
+
+
+async def test_rename_ask_restores_the_stored_channel_name():
+    """A refused rename to a different clean name leaves channel_name as it was."""
+    svc, guild, own = _rename_env(("level", 111), ("level-1", 50))
+    puz = make_puzzle(id=70, name="Level 1", channel_id=50)
+    puz.channel_name = "level-1"
+    with patch.object(ps, "PuzzleJsonDb"), \
+         patch.object(svc, "safe_rename", new_callable=AsyncMock):
+        with pytest.raises(ChannelNameClash) as exc:
+            await svc.rename_puzzle(guild, _hunt_obj(), puz, "Level", on_channel_clash="ask")
+    assert exc.value.channel_name == "level"
+    assert (puz.name, puz.channel_name) == ("Level 1", "level-1")
