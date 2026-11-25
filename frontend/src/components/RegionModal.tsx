@@ -22,6 +22,7 @@ import { useOcrReplaceConfirm } from "../hooks/useOcrReplaceConfirm";
 import { notifyError } from "../util";
 import { useChannelClashPrompt } from "./ChannelClashPrompt";
 import { puzzleOptions } from "../lib/boardPuzzles";
+import { existingRegion, type SavedShape } from "../lib/regionTarget";
 import type { CanvasRegion, HuntDetail, RegionRole, RegionShape } from "../types";
 
 // Sentinel dropdown value for "no round" — matches CreateControls' pattern,
@@ -73,7 +74,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
   // modal stays open on the pending shape when the puzzle create then fails or
   // is cancelled (a taken name, a channel-name clash), so a second "Create and
   // link" must reuse this region rather than save the same shape again.
-  const savedShape = useRef<{ shape: RegionShape; region: CanvasRegion } | null>(null);
+  const savedShape = useRef<SavedShape | null>(null);
   const ocrRegion = useOcrCanvasRegion();
   const ocrConfirm = useOcrReplaceConfirm(
     setNote,
@@ -143,8 +144,10 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
       role: linked ? role : null,
     };
     try {
-      if (region) {
-        await updateRegion.mutateAsync({ canvasId, regionId: region.id, ...body });
+      // A shape a failed "Create and link" already saved is updated, not saved again.
+      const target = existingRegion(region, pendingShape, savedShape.current);
+      if (target) {
+        await updateRegion.mutateAsync({ canvasId, regionId: target.id, ...body });
       } else if (pendingShape) {
         await createRegion.mutateAsync({ canvasId, shape: pendingShape, ...body });
       }
@@ -180,9 +183,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
       // Creating a puzzle needs a region to hang it on, so a freshly drawn shape
       // is saved first and then linked. That keeps one create path rather than a
       // second "create region and puzzle together" endpoint.
-      let target = region
-        ?? (pendingShape && savedShape.current?.shape === pendingShape
-          ? savedShape.current.region : null);
+      let target = existingRegion(region, pendingShape, savedShape.current);
       if (!target && pendingShape) {
         target = await createRegion.mutateAsync({
           canvasId, shape: pendingShape, label, note: note || null,
