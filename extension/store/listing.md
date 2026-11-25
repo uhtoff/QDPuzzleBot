@@ -14,6 +14,8 @@ It is a companion to the Puzzbot dashboard used by puzzle-hunt teams. You must h
 
 Features:
 - Live chat for the puzzle in the active Google Sheets tab, in a side panel; also on a puzzle's hunt page when you opened it from the dashboard.
+- Unread puzzles list at the top of the panel: which puzzles in the hunt have new messages, and which were just solved (with the answer and who solved it). Click one to read it without leaving your tab.
+- The hunt's general channel in the panel while you have the hunt's board open on the dashboard.
 - Unread count on the toolbar icon.
 - Optional desktop notifications for solves and for new messages, each off by default.
 - "Work on this puzzle", "Open puzzle as a tab group" and "Open round" buttons on the dashboard open and group the right pages for you.
