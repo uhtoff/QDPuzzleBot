@@ -11,7 +11,7 @@ import { chatNotificationId, notificationId, notifyKind, notifyPrefs, parseNotif
 import { createNameCache, resolveName } from "./lib/channelNames.js";
 import { notificationText } from "./lib/discordText.js";
 import { clockSkew, createMarkers, snowflakeAt } from "./lib/readMarkers.js";
-import { applyMessage, badgeCount, badgeText, clearAll, clearChannel, isListed, listHuntName, listRows, nextGraceEnd, peekPuzzle, totals } from "./lib/unreadList.js";
+import { applyMessage, badgeCount, badgeText, clearAll, clearChannel, isListed, listHuntName, listRows, nextGraceEnd, peekPuzzle, replayMessages, totals } from "./lib/unreadList.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
 import { panelWindow } from "./lib/panelWindow.js";
 import { groupMove } from "./lib/groupMove.js";
@@ -61,6 +61,7 @@ const nowMs = () => Date.now() + clockSkewMs;
 let selfId = null;
 let graceTimer = null; // re-sends the lists when a solved chat's grace window ends
 const huntFetches = new Map(); // huntUid -> {again, promise}
+const fetchBuffers = new Map(); // huntUid -> live message events seen while its fetch is in flight
 const huntFailed = new Map(); // huntUid -> ms of its last failed fetch (e.g. an older dashboard)
 const HUNT_RETRY_MS = 60000;
 const UNDO_MS = 8000;
@@ -171,6 +172,15 @@ function wantedHunts() {
 }
 
 async function doFetchUnread(uid) {
+  fetchBuffers.set(uid, []);
+  try {
+    return await fetchAndStoreUnread(uid);
+  } finally {
+    fetchBuffers.delete(uid);
+  }
+}
+
+async function fetchAndStoreUnread(uid) {
   const version = markersVersion;
   const origin = markersOrigin;
   const known = huntCache.get(uid);
@@ -188,13 +198,13 @@ async function doFetchUnread(uid) {
   if (typeof res.self_id === "string") selfId = res.self_id;
   if (typeof res.hunt_name === "string") huntTitles.set(uid, res.hunt_name);
   if (skew !== null) clockSkewMs = skew;
+  const visible = await visibleChannels();
+  // No await from here to the set: messages arriving meanwhile land in the buffer.
   const before = new Map((huntCache.get(uid) ?? []).map((c) => [c.channel_id, c]));
   const now = snowflakeAt(nowMs());
   // The server sends no solve time: a solve sorts from when it was first seen.
-  huntCache.set(
-    uid,
-    res.channels.map((c) => (c.newly_solved ? { ...c, solved_seq: before.get(c.channel_id)?.solved_seq ?? now } : c)),
-  );
+  const fresh = res.channels.map((c) => (c.newly_solved ? { ...c, solved_seq: before.get(c.channel_id)?.solved_seq ?? now } : c));
+  huntCache.set(uid, replayMessages(fresh, fetchBuffers.get(uid) ?? [], { visible, markers, selfId }));
   for (const c of res.channels) misses.delete(c.channel_id);
   return "done";
 }
@@ -422,6 +432,7 @@ async function handleMessage(ev) {
   const channelId = ev.channel_id == null ? null : String(ev.channel_id);
   if (!channelId) return;
   const visible = await visibleChannels();
+  for (const buf of fetchBuffers.values()) buf.push(ev); // replayed over a refetch's answer
   let known = false;
   for (const [uid, chans] of huntCache) {
     const r = applyMessage(chans, ev, { visible, markers, selfId });
