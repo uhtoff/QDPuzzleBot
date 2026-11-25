@@ -49,6 +49,7 @@ const huntCache = new Map(); // huntUid -> channels[]
 const portHunt = new Map(); // port -> the (unarchived) hunt its panel last showed
 const huntTitles = new Map(); // huntUid -> the hunt's name, from its unread fetch
 const peeks = new Map(); // port -> {huntUid, channelId}: a chat shown instead of the tab's
+const tabAsks = new Map(); // port -> count of "show me my tab" requests, to spot a stale peek
 // Channel ids no cached hunt lists (a mini-puzzle's thread, a hunt nobody has open). Each
 // is asked about once; a channel that later joins a list is found there, not here.
 const misses = new Set();
@@ -310,6 +311,13 @@ const findChannel = (huntUid, channelId) => huntCache.get(huntUid)?.find((c) => 
 async function peekChat(port, huntUid, channelId) {
   await ready;
   const windowId = ports.get(port);
+  // A restarted background has no list yet (a reconnecting panel re-sends its peek
+  // straight away): load it before deciding the chat is gone.
+  if (channelId && huntUid && !huntCache.has(huntUid)) {
+    const asked = tabAsks.get(port);
+    await fetchUnread(huntUid);
+    if (tabAsks.get(port) !== asked) return; // a tab switch meanwhile ends the peek
+  }
   const ch = channelId ? findChannel(huntUid, channelId) : null;
   const view = await portView(port);
   if (!ch || view.tabEntry?.channel_id === ch.channel_id) {
@@ -805,6 +813,7 @@ chrome.runtime.onConnect.addListener((port) => {
     ports.delete(port);
     portHunt.delete(port);
     peeks.delete(port);
+    tabAsks.delete(port);
     reconcileUnread();
   });
   safePost(port, { type: "socket", connected: socketUp });
@@ -813,6 +822,7 @@ chrome.runtime.onConnect.addListener((port) => {
     ports.set(port, msg.windowId);
     if (msg.type === "get") {
       peeks.delete(port); // "show me my tab"
+      tabAsks.set(port, (tabAsks.get(port) ?? 0) + 1);
       const [tab] = await chrome.tabs.query({ active: true, windowId: msg.windowId });
       if (tab) await refreshTab(tab, port);
       else reconcileUnread();
