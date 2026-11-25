@@ -33,9 +33,12 @@ The same source runs in desktop Firefox 140 or later (not Firefox for Android, w
 sidebar). `manifest.json` is the Chrome manifest; the Firefox one is generated from it by
 `scripts/firefoxManifest.js` at package time, so never edit a copy under `dist/`.
 
-- **Try it locally:** `bash package.sh firefox`, then in Firefox open
+- **Try it locally:** `bash package.sh firefox` (it also runs Mozilla's linter, `web-ext
+  lint`, and stops on any error; `npm run lint:firefox` re-runs it alone). Then either
+  `npm run run:firefox`, which opens a throwaway Firefox profile with the add-on loaded, or
+  in your own Firefox open
   `about:debugging#/runtime/this-firefox`, **Load Temporary Add-on** and pick
-  `dist/firefox/manifest.json`. It stays loaded until Firefox restarts.
+  `dist/firefox/manifest.json`. Either way it stays loaded until Firefox restarts.
 - **Release:** upload `dist/puzzle-chat-firefox-<version>.zip` to addons.mozilla.org as an
   **unlisted** add-on (Mozilla signs it; it is not searchable). Notes for the submission
   form: `store/amo-notes.md`. Then publish the signed file from the live dashboard:
