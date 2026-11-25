@@ -4,7 +4,7 @@ import { canCompose, validate, draftAfterSend } from "./lib/composer.js";
 import { applyEvent, eventChannel, sameTarget, mergeHistory, targetChannel } from "./lib/panelState.js";
 import { attachmentView } from "./lib/attachments.js";
 import { messagesPath, safeAvatarUrl } from "./lib/origin.js";
-import { paginate, rowText, rowTime } from "./lib/unreadList.js";
+import { paginate, rowBadge, rowMessage, rowText, rowTime } from "./lib/unreadList.js";
 import { apiGet, apiSend, getOrigin } from "./api.js";
 
 const KIND_COMMAND = 3;
@@ -329,7 +329,13 @@ function renderRow(ch) {
   if (ch.rounds?.length) name.append(el("span", "u-round", ch.rounds.join(", ")));
   const prev = el("span", "u-prev");
   appendInline(prev, rowText(ch));
-  row.append(el("span", "badge", ch.newly_solved ? "✓" : ch.unread > 99 ? "99+" : String(ch.unread)), name, el("span", "u-time", ago(rowTime(ch))), el("span"), prev);
+  row.append(el("span", "badge", rowBadge(ch)), name, el("span", "u-time", ago(rowTime(ch))), el("span"), prev);
+  const extra = rowMessage(ch);
+  if (extra) {
+    const msg = el("span", "u-prev u-msg");
+    appendInline(msg, extra);
+    row.append(el("span"), msg);
+  }
   row.addEventListener("click", (e) => (e.ctrlKey || e.metaKey ? goTo(unreadMsg.huntUid, ch.channel_id) : peekAt(ch)));
   row.addEventListener("mousedown", (e) => {
     if (e.button === 1) e.preventDefault(); // no autoscroll: middle-click goes to the tab

@@ -112,20 +112,31 @@ export function badgeCount(channels, trackedChannelIds) {
 
 export const badgeText = (total) => (total <= 0 ? "" : total > 99 ? "99+" : String(total));
 
-// The row's second line.
+const messageText = (ch) => {
+  if (!ch.last) return "";
+  const text = String(ch.last.content ?? "").replace(/\s+/g, " ").trim();
+  return (ch.last.author_name ?? "") + ": " + text;
+};
+
+// The row's second line: the solve on a Solved row, else the latest message.
 export function rowText(ch) {
   if (ch.newly_solved) {
     const by = ch.solved_by ? " (" + ch.solved_by + ")" : "";
     return (ch.solution ? "Solved: " + ch.solution : "Solved") + by;
   }
-  if (!ch.last) return "";
-  const text = String(ch.last.content ?? "").replace(/\s+/g, " ").trim();
-  return (ch.last.author_name ?? "") + ": " + text;
+  return messageText(ch);
 }
+
+// A third line, only on a Solved row with unread messages since: the latest one.
+export const rowMessage = (ch) => (ch.newly_solved && ch.unread > 0 ? messageText(ch) : "");
+
+// The badge: the unread count, or a tick on a Solved row with nothing unread.
+export const rowBadge = (ch) =>
+  ch.newly_solved && !(ch.unread > 0) ? "✓" : ch.unread > 99 ? "99+" : String(ch.unread ?? 0);
 
 // When the row's time ("4m") counts from: a Solved row from the solve, else its last message.
 export function rowTime(ch) {
-  if (ch.newly_solved && ch.solved_at) return ch.solved_at;
+  if (ch.newly_solved && ch.solved_at && !(ch.unread > 0)) return ch.solved_at;
   return ch.last?.created_at ?? null;
 }
 

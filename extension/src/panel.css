@@ -73,6 +73,7 @@ img.emoji { height: 1.2em; width: auto; vertical-align: text-bottom; }
 .u-list li.solved { background: var(--ok-soft); box-shadow: inset 3px 0 var(--ok); }
 .u-list li.solved .badge { background: var(--ok); color: var(--ok-ink); }
 .u-list li.solved .u-prev { color: var(--ok); font-weight: 600; }
+.u-list li.solved .u-msg { color: var(--dim); font-weight: normal; }
 .u-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 4px 4px 6px; border-top: 1px solid var(--line); }
 #unread .u-mark { font-size: 11px; color: var(--accent); padding: 3px 6px; border-radius: 4px; }
 #unread .u-mark:hover { background: var(--hover); }

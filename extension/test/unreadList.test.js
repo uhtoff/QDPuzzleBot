@@ -14,6 +14,8 @@ import {
   badgeText,
   rowText,
   rowTime,
+  rowMessage,
+  rowBadge,
   peekPuzzle,
 } from "../src/lib/unreadList.js";
 
@@ -250,10 +252,35 @@ describe("rowText", () => {
   });
 });
 
+describe("a Solved row with new messages", () => {
+  const solved = (over) => ch({ solved: true, newly_solved: true, solution: "SOLVED", solved_by: "Uhtoff",
+                                solved_at: "2026-11-24T15:30:00+00:00", ...over });
+
+  it("keeps the Solved line and adds the latest message as its own line", () => {
+    const c = solved({ unread: 1, last: last("9", "Beta Test", "🥳") });
+    expect(rowText(c)).toBe("Solved: SOLVED (Uhtoff)");
+    expect(rowMessage(c)).toBe("Beta Test: 🥳");
+  });
+
+  it("has no message line with nothing unread, or on any other row", () => {
+    expect(rowMessage(solved({ unread: 0, last: last("9", "Beta Test", "🥳") }))).toBe("");
+    expect(rowMessage(ch({ unread: 2, last: last("9") }))).toBe(""); // its line 2 already is the message
+  });
+
+  it("badge: the unread count once there is one, else the tick", () => {
+    expect(rowBadge(solved({ unread: 0 }))).toBe("✓");
+    expect(rowBadge(solved({ unread: 3 }))).toBe("3");
+    expect(rowBadge(solved({ unread: 120 }))).toBe("99+");
+    expect(rowBadge(ch({ unread: 7 }))).toBe("7");
+  });
+});
+
 describe("rowTime", () => {
   it("a Solved row is timed from the solve, not its last message", () => {
     const c = ch({ solved: true, newly_solved: true, solved_at: "2026-11-24T15:30:00+00:00", last: last("5") });
     expect(rowTime(c)).toBe("2026-11-24T15:30:00+00:00");
+    // a message after the solve moves the row up, so its time follows the message
+    expect(rowTime({ ...c, unread: 1 })).toBe("2026-11-24T14:10:00+00:00");
   });
   it("any other row is timed from its last message", () => {
     expect(rowTime(ch({ unread: 1, last: last("5") }))).toBe("2026-11-24T14:10:00+00:00");
