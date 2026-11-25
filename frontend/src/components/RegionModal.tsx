@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Button,
   Divider,
@@ -69,6 +69,11 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
   const deleteRegion = useDeleteRegion(uid);
   const createPuzzle = useCreatePuzzleFromRegion(uid);
   const channelClash = useChannelClashPrompt();
+  // The region a freshly drawn shape was saved as, kept with that shape. The
+  // modal stays open on the pending shape when the puzzle create then fails or
+  // is cancelled (a taken name, a channel-name clash), so a second "Create and
+  // link" must reuse this region rather than save the same shape again.
+  const savedShape = useRef<{ shape: RegionShape; region: CanvasRegion } | null>(null);
   const ocrRegion = useOcrCanvasRegion();
   const ocrConfirm = useOcrReplaceConfirm(
     setNote,
@@ -151,7 +156,8 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
 
   // Create the puzzle on an already-saved region. On a channel-name clash the
   // Accept retry comes back here with the SAME region (it was saved by the
-  // first attempt), so a freshly drawn shape is never saved twice.
+  // first attempt); a Cancel-then-retry reuses it through savedShape. Either
+  // way a freshly drawn shape is never saved twice.
   const linkPuzzle = async (regionId: number, acceptChannelSuffix: boolean) => {
     try {
       await createPuzzle.mutateAsync({
@@ -174,11 +180,14 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
       // Creating a puzzle needs a region to hang it on, so a freshly drawn shape
       // is saved first and then linked. That keeps one create path rather than a
       // second "create region and puzzle together" endpoint.
-      let target = region;
+      let target = region
+        ?? (pendingShape && savedShape.current?.shape === pendingShape
+          ? savedShape.current.region : null);
       if (!target && pendingShape) {
         target = await createRegion.mutateAsync({
           canvasId, shape: pendingShape, label, note: note || null,
         });
+        savedShape.current = { shape: pendingShape, region: target };
       }
       if (!target) return;
       await linkPuzzle(target.id, false);
