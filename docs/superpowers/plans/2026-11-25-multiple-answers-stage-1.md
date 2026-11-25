@@ -222,5 +222,12 @@ Two files, so a backfill failure can never leave a half-applied file that dies o
 
 ## Carried forward
 
-- **Before the heal in `ensure_loaded` is removed (stage 3),** rows that drifted and were never written again are still stale. That stage must run 065's second POST-CHECK query, repair what it lists from the string, and only then make the rows the authority.
+- **Before stage 2 derives solved from the count — not only before stage 3 removes the heal —** rows and counts that drifted and were never written again are still stale. For example, an old-code solve in the deploy window or during a rollback leaves `solved = 1`, the string `X`, no rows and expected 1, which a count-derived reader would see as unsolved. Stage 2 must either derive through `ensure_loaded` (the string wins), or run 065's second POST-CHECK query and repair what it lists from the string before it ships. Stage 3 then makes the rows the authority. Normalise legacy lowercase rows in the same repair, because 065 copied fragments without `UPPER`.
 - `created_by` is filled only by `solve()` in this stage (it has `solved_by`). Stage 2 passes the author on the other paths.
+- **`!update_puzzle_setting` can still write `solution`, `solved` and `expected_answers*` directly** (`bot/cogs/puzzles.py`, `update_settings`). In stage 1 the next seam write heals this. Once stage 2 derives solved, a raw write breaks `solved ⇔ len(answers) ≥ expected_answers` and nothing repairs it. Stage 2 must refuse these keys through `_UNSTORED_SETTING_KEYS`, or route them through the seam.
+- **`tests/test_puzzle_answers_migration.py` re-runs 065's table-wide UPDATEs on `puzzlebot_test`.** It must be retired or scoped when stage 2 ships, on the same deadline as 065's own "re-runnable only until stage 2" note.
+- **Small visible changes accepted in stage 1, beyond the three in Review Focus:**
+  - adding an answer to a ✅-only puzzle now reads `X`, not `✅/X`;
+  - `!solve /` on a fresh puzzle reads `✅`, and `!solve A/` loses its trailing `/`;
+  - `!show_puzzle_settings` also lists `answers`, `answers_dirty` and `expected_*`.
+- **A single answer longer than 250 characters** fails the answer-row INSERT after the puzzles row has committed. The command errors, the string is kept, and the rows heal on the next write. Revisit this if the rows become the authority.
