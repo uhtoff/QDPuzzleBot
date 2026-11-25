@@ -52,8 +52,9 @@ async def test_rename_puzzle_still_rejects_real_duplicate():
 # --- Service layer: guard the Discord channel edit on a real name change ------
 
 class _FakeChannel:
-    def __init__(self, name):
+    def __init__(self, name, id=111):
         self.name = name
+        self.id = id  # a real channel always has one; needs_rename keys on it
 
 
 class _FakeGuild:
@@ -96,3 +97,19 @@ async def test_rename_puzzle_edits_discord_when_channel_name_changes():
          patch.object(svc, "safe_rename", new_callable=AsyncMock) as safe_rename:
         await svc.rename_puzzle(_FakeGuild(channel), make_hunt(), puz, "New Name")
     safe_rename.assert_awaited_once_with(channel, "new-name")
+
+
+@pytest.mark.asyncio
+async def test_rename_puzzle_back_to_the_shown_name_replaces_a_queued_rename():
+    """Discord still shows "old-name" while a rate-limited rename to "new-name" waits.
+    Renaming the puzzle back to Old Name must reach safe_rename, which replaces the
+    queued name; skipping it would let "new-name" land later."""
+    puz = make_puzzle(id=70, name="New Name", channel_id=111)
+    puz.channel_name = "new-name"
+    channel = _FakeChannel("old-name")
+    svc = _svc_no_sheets()
+    svc._pending_renames[channel.id] = "new-name"
+    with patch("bot.core.puzzle_service.PuzzleJsonDb"), \
+         patch.object(svc, "safe_rename", new_callable=AsyncMock) as safe_rename:
+        await svc.rename_puzzle(_FakeGuild(channel), make_hunt(), puz, "Old Name")
+    safe_rename.assert_awaited_once_with(channel, "old-name")
