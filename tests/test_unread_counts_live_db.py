@@ -49,7 +49,9 @@ def test_unread_counts_and_own_last_against_the_real_schema():
         assert counts == {CH_A: {"unread": 2, "last_id": BASE + 30},
                           CH_B: {"unread": 1, "last_id": BASE + 25}}
 
-        own = asyncio.run(data.get_own_last_message_ids([CH_A, CH_B], ME))
+        own = asyncio.run(data.get_own_last_message_ids([CH_A, CH_B], ME, BASE))
         assert own == {CH_A: BASE + 20}
+        # An own message at or below the baseline is not reported.
+        assert asyncio.run(data.get_own_last_message_ids([CH_A, CH_B], ME, BASE + 20)) == {}
     finally:
         _ulive_cleanup()

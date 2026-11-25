@@ -954,15 +954,20 @@ async def get_channel_messages(channel_id, before=None, limit=50):
     return out
 
 
-async def get_own_last_message_ids(channel_ids, author_id):
-    """{channel_id: id of author_id's latest message} for the given channels."""
+async def get_own_last_message_ids(channel_ids, author_id, after_id):
+    """{channel_id: id of author_id's latest message newer than after_id} for the
+    given channels. *after_id* is the unread baseline: an own message at or below
+    it cannot raise a marker, and the bound keeps this to the (channel_id, id)
+    index's recent rows instead of every message the hunt has ever had (there is
+    no index on author_id)."""
     if not channel_ids:
         return {}
     placeholders = ",".join(["%s"] * len(channel_ids))
     rows = await fetch_all(
         "SELECT channel_id, MAX(id) AS last_id FROM messages "
-        f"WHERE author_id = %s AND channel_id IN ({placeholders}) GROUP BY channel_id",
-        (author_id, *channel_ids),
+        f"WHERE author_id = %s AND id > %s AND channel_id IN ({placeholders}) "
+        "GROUP BY channel_id",
+        (author_id, after_id, *channel_ids),
     )
     return {r["channel_id"]: r["last_id"] for r in rows}
 

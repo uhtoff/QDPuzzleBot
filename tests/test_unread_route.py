@@ -49,7 +49,7 @@ async def test_unread_folds_markers_and_returns_channels_in_order():
         body = await resp.get_json()
     c.m["load"].assert_awaited_once_with("H1")
     assert c.m["puzzles"].call_args.args == (HUNT, 777)
-    assert c.m["own"].call_args.args == ([800, 900, 901], 1)
+    assert c.m["own"].call_args.args == ([800, 900, 901], 1, 100)  # bounded by the baseline
     # general -> baseline; 900 -> its read marker; 901 -> the user's own later message
     c.m["counts"].assert_awaited_once_with({800: 100, 900: 300, 901: 500})
     assert sorted(c.m["lasts"].call_args.args[0]) == [600, 700]

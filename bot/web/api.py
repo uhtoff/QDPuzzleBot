@@ -240,17 +240,12 @@ async def hunt_chat(uid):
     """The hunt's general channel, in the by-sheet lookup's shape, for the chat
     extension's panel while the hunt board is open on the dashboard. Not a
     puzzle: no id, never solved, no sheet."""
-    user = current_user()
-    assert user is not None
-    not_found = (jsonify({"error": "not_found_or_forbidden"}), 404)
-    hunt = await data.get_hunt_by_uid(uid)
+    hunt, guild_or_status = await _load_visible_hunt(uid)
     if hunt is None:
-        return not_found
-    membership, roles_by_guild = await resolve_membership(user["id"])
-    guilds_map = await data.get_guilds_map()
-    if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
-        return not_found
-    guild_snowflake = guilds_map.get(hunt["guild_id"], {}).get("guild_snowflake")
+        # 404 for hidden as well as missing: don't reveal which.
+        return jsonify({"error": "not_found_or_forbidden"}), 404
+    assert isinstance(guild_or_status, dict)  # the (hunt, guild_info) branch
+    guild_snowflake = guild_or_status.get("guild_snowflake")
     channel_id = hunt.get("channel_id")
     return jsonify({
         "puzzle": {
@@ -292,7 +287,7 @@ async def hunt_unread(uid):
     ids = ([int(hunt["channel_id"])] if hunt.get("channel_id") else []) + [
         int(p["channel_id"]) for p in puzzles
         if p.get("channel_id") and not p.get("parent_puzzle_id")]
-    own = await data.get_own_last_message_ids(ids, int(user["id"]))
+    own = await data.get_own_last_message_ids(ids, int(user["id"]), baseline)
     markers = unread.effective_markers(ids, baseline, read, own)
     counts = await data.get_unread_counts(markers)
     lasts = await data.get_messages_by_ids([c["last_id"] for c in counts.values()])

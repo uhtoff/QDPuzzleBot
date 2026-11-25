@@ -7,17 +7,19 @@ from bot.web import data
 async def test_own_last_message_ids_maps_each_channel():
     rows = [{"channel_id": 900, "last_id": 7}, {"channel_id": 901, "last_id": 9}]
     with patch("bot.web.data.fetch_all", new=AsyncMock(return_value=rows)) as fa:
-        out = await data.get_own_last_message_ids([900, 901], 42)
+        out = await data.get_own_last_message_ids([900, 901], 42, 5)
     assert out == {900: 7, 901: 9}
     sql, params = fa.call_args.args
     assert "author_id" in sql and "GROUP BY channel_id" in sql
     assert "AS last_id" in sql
-    assert 42 in params and 900 in params and 901 in params
+    # Bounded below by the baseline, so it never reads the hunt's whole history.
+    assert "id > %s" in sql
+    assert tuple(params) == (42, 5, 900, 901)
 
 
 async def test_own_last_message_ids_empty_runs_no_query():
     with patch("bot.web.data.fetch_all", new=AsyncMock(return_value=[])) as fa:
-        assert await data.get_own_last_message_ids([], 42) == {}
+        assert await data.get_own_last_message_ids([], 42, 5) == {}
     fa.assert_not_awaited()
 
 
