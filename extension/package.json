@@ -4,8 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "lint:firefox": "web-ext lint --self-hosted --source-dir dist/firefox",
-    "run:firefox": "web-ext run --source-dir dist/firefox --start-url https://docs.google.com/spreadsheets/"
+    "lint:firefox": "web-ext lint --self-hosted --source-dir dist/firefox"
   },
   "devDependencies": {
     "vitest": "^4.1.10",

@@ -33,12 +33,14 @@ The same source runs in desktop Firefox 140 or later (not Firefox for Android, w
 sidebar). `manifest.json` is the Chrome manifest; the Firefox one is generated from it by
 `scripts/firefoxManifest.js` at package time, so never edit a copy under `dist/`.
 
-- **Try it locally:** `bash package.sh firefox` (it also runs Mozilla's linter, `web-ext
-  lint`, and stops on any error; `npm run lint:firefox` re-runs it alone). Then either
-  `npm run run:firefox`, which opens a throwaway Firefox profile with the add-on loaded, or
-  in your own Firefox open
-  `about:debugging#/runtime/this-firefox`, **Load Temporary Add-on** and pick
-  `dist/firefox/manifest.json`. Either way it stays loaded until Firefox restarts.
+- **Try it locally:** `bash package.sh firefox` on the build host (it also runs Mozilla's
+  linter, `web-ext lint`, and stops on any error; `npm run lint:firefox` re-runs it alone).
+  Copy the zip to the machine you test on, e.g. from PowerShell:
+  `scp <user>@<build-host>:projects/puzzbot/extension/dist/puzzle-chat-firefox-<version>.zip $HOME\`.
+  In Firefox there, open `about:debugging#/runtime/this-firefox`, **Load Temporary
+  Add-on…** and pick the zip itself (no unpacking needed). It stays loaded until Firefox
+  restarts. After a rebuild, copy the zip again, **Remove** the add-on and load the new zip;
+  **Reload** re-reads the old file.
 - **Release:** upload `dist/puzzle-chat-firefox-<version>.zip` to addons.mozilla.org as an
   **unlisted** add-on (Mozilla signs it; it is not searchable). Notes for the submission
   form: `store/amo-notes.md`. Then publish the signed file from the live dashboard:
