@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, List, Optional
 if TYPE_CHECKING:
     from . import MySQLReconnector
 
-from bot.core.discord_channels import clean_channel_name
 from bot.core.activity_slots import slot_start
 from bot.core.constants import HEADER_STYLES
 from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
@@ -933,9 +932,14 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 
     # Table-specific signature; never called through a base-typed reference.
     def check_duplicates_in_hunt(self, name, hunt_id, exclude_puzzle_id=None) -> bool:  # pyright: ignore[reportIncompatibleMethodOverride]
-        query = ("SELECT 1 FROM puzzles "
-                 "WHERE ( puzzles.name = %s OR puzzles.channel_name= %s ) AND puzzles.hunt_id = %s")
-        params = [name, clean_channel_name(name), hunt_id]
+        # Names only. Two names that clean to the same CHANNEL name ("General" /
+        # "General!!") are not duplicates: create/rename ask about that clash and
+        # take a -N channel name (on_channel_clash). This used to also refuse a
+        # name whose clean form equalled another puzzle's stored channel_name,
+        # which pre-empted that prompt -- and only sometimes, since a stored
+        # channel name may carry a -N suffix or a glyph prefix.
+        query = "SELECT 1 FROM puzzles WHERE puzzles.name = %s AND puzzles.hunt_id = %s"
+        params = [name, hunt_id]
         if exclude_puzzle_id is not None:
             # A rename must not clash with the puzzle being renamed (its own row):
             # adding punctuation/emoji to a name would otherwise look like a duplicate.
