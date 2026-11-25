@@ -44,6 +44,10 @@ from bot.core.target_extract import select_extract_puzzles
 
 logger = logging.getLogger(__name__)
 
+# How long a channel rename may hold its caller before it is handed to the
+# background (see PuzzleService.safe_rename).
+RENAME_WAIT_SECONDS = 5
+
 
 # Re-entrancy depth for board-push dedupe. A contextvar (not an instance attr) so
 # concurrent operations in separate asyncio tasks each get an independent count.
@@ -316,33 +320,47 @@ class PuzzleService:
         self._rename_tasks: set = set()
 
     async def safe_rename(self, channel, name, ctx=None):
-        """Rename a Discord channel, coalescing rapid renames under rate limit.
+        """Rename a Discord channel without waiting out its rename limit.
+
+        Discord allows two renames per channel per ten minutes. discord.py does
+        not raise when that bucket is spent: it sleeps until it resets, which
+        held a dashboard rename (and the puzzle's lock) for nearly ten minutes.
+        So the edit gets RENAME_WAIT_SECONDS; past that it is cancelled (safe:
+        it is waiting, not sending) and finished in the background with the
+        latest requested name, coalescing any renames asked for meanwhile.
+        Returns True when the name is applied now, False when it will follow.
 
         Moved from Puzzles cog (Phase 6). `ctx` may be None (web callers); no user-
         facing message is sent in that case."""
-        try:
-            await channel.edit(name=name)
-            return True
-        except discord.RateLimited as exc:
-            already_pending = channel.id in self._pending_renames
-            self._pending_renames[channel.id] = name
-            if ctx is not None:
-                await ctx.send(
-                    f"⏳ Discord is rate-limiting renames on this channel; "
-                    f"I'll apply the new name in about {round(exc.retry_after)}s."
-                )
-            if not already_pending:
-                task = asyncio.create_task(self._deferred_rename(channel, exc.retry_after))
-                self._rename_tasks.add(task)
-                task.add_done_callback(self._rename_tasks.discard)
-            return False
+        delay = 0
+        if channel.id not in self._pending_renames:
+            try:
+                await asyncio.wait_for(channel.edit(name=name), timeout=RENAME_WAIT_SECONDS)
+                return True
+            except asyncio.TimeoutError:
+                pass
+            except discord.RateLimited as exc:   # only with max_ratelimit_timeout set
+                delay = exc.retry_after
+        already_pending = channel.id in self._pending_renames
+        self._pending_renames[channel.id] = name
+        if ctx is not None:
+            await ctx.send(
+                "⏳ Discord is rate-limiting renames on this channel; I'll apply the "
+                "new name as soon as it allows (this can take up to ten minutes)."
+            )
+        if not already_pending:
+            task = asyncio.create_task(self._deferred_rename(channel, delay))
+            self._rename_tasks.add(task)
+            task.add_done_callback(self._rename_tasks.discard)
+        return False
 
     async def _deferred_rename(self, channel, delay):
         """Wait out the rename bucket, then apply the latest requested name,
         coalescing any further renames queued while we were waiting."""
         attempts = 0
         while attempts < 6:
-            await asyncio.sleep(delay + 1)
+            if delay:
+                await asyncio.sleep(delay + 1)
             name = self._pending_renames.get(channel.id)
             if name is None:
                 return
