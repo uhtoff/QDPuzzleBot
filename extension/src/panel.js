@@ -279,7 +279,7 @@ const askState = () => post({ type: "get" });
 // The background sends {type: "unread", huntUid, rows, totals, undo, peek}; rows are
 // the hunt's chats with news, newest first, without the one this panel shows.
 const OPEN_KEY = "unreadListOpen";
-let unreadMsg = { huntUid: null, rows: [], totals: { puzzles: 0, messages: 0, solved: 0 }, undo: 0, peek: null };
+let unreadMsg = { huntUid: null, huntName: null, rows: [], totals: { puzzles: 0, messages: 0, solved: 0 }, undo: 0, peek: null };
 let listOpen = false;
 let listPage = 0;
 let topChannel = null; // first row's channel: a new arrival at the top returns to page 1
@@ -358,7 +358,7 @@ function spacerRow() {
 }
 
 function renderUnread(fresh) {
-  const { huntUid, rows, totals: t, undo } = unreadMsg;
+  const { huntUid, huntName, rows, totals: t, undo } = unreadMsg;
   unreadBox.replaceChildren();
   unreadBox.classList.toggle("open", listOpen);
   if (!huntUid || (!rows.length && !undo)) {
@@ -379,7 +379,8 @@ function renderUnread(fresh) {
   });
   toggle.setAttribute("aria-expanded", String(listOpen));
   const label = el("span");
-  label.append("New in ", el("b", null, String(t.puzzles)), t.puzzles === 1 ? " puzzle · " : " puzzles · ", el("b", null, String(t.messages)));
+  label.append("New in ", el("b", null, String(t.puzzles)), t.puzzles === 1 ? " puzzle · " : " puzzles · ", el("b", null, String(t.messages)), " unread");
+  if (huntName) toggle.append(el("span", "u-hunt", huntName));
   toggle.append(el("span", "chev", "▸"), label);
   if (t.solved) toggle.append(el("span", "chip-ok", "✓ " + t.solved + " solved"));
   unreadBox.append(toggle);
@@ -431,7 +432,7 @@ function onUnread(msg) {
   const messagesNow = msg.totals?.messages ?? 0;
   const fresh = messagesNow > lastMessages;
   lastMessages = messagesNow;
-  unreadMsg = { huntUid: msg.huntUid ?? null, rows, totals: msg.totals ?? unreadMsg.totals, undo: msg.undo ?? 0, peek: msg.peek ?? null };
+  unreadMsg = { huntUid: msg.huntUid ?? null, huntName: msg.huntName ?? null, rows, totals: msg.totals ?? unreadMsg.totals, undo: msg.undo ?? 0, peek: msg.peek ?? null };
   renderUnread(fresh);
   renderPeek(unreadMsg.peek);
 }
@@ -479,7 +480,9 @@ function connectPort() {
     schedulePoll();
     setTimeout(() => {
       const keep = peeking; // a restarted worker forgot the peek: ask for it again
+      const hunt = unreadMsg.huntUid; // ...and the list's hunt, which a non-puzzle tab cannot name
       connectPort();
+      if (hunt) post({ type: "hunt", huntUid: hunt });
       askState();
       if (keep) post({ type: "peek", ...keep });
     }, 1000);

@@ -125,3 +125,12 @@ async def test_unread_returns_the_servers_clock_in_ms():
             resp = await c.post(URL, json={"baseline": "100", "read": {}})
             body = await resp.get_json()
     assert body["server_time_ms"] == 1700000000250
+
+
+async def test_unread_returns_the_hunts_name():
+    """The panel keeps a hunt's list after you move to a tab outside it, and then
+    names the hunt so the list is not anonymous."""
+    async with _ur_client() as c:
+        resp = await c.post(URL, json={"baseline": "100", "read": {}})
+        body = await resp.get_json()
+    assert body["hunt_name"] == "Saltmarsh"

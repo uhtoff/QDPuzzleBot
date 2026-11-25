@@ -11,7 +11,7 @@ import { notificationId, parseNotificationId, shouldNotify } from "./lib/notify.
 import { createNameCache, resolveName } from "./lib/channelNames.js";
 import { notificationText } from "./lib/discordText.js";
 import { clockSkew, createMarkers, snowflakeAt } from "./lib/readMarkers.js";
-import { applyMessage, badgeCount, badgeText, clearAll, clearChannel, isListed, listRows, nextGraceEnd, peekPuzzle, totals } from "./lib/unreadList.js";
+import { applyMessage, badgeCount, badgeText, clearAll, clearChannel, isListed, listHuntName, listRows, nextGraceEnd, peekPuzzle, totals } from "./lib/unreadList.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
 import { panelWindow } from "./lib/panelWindow.js";
 import { groupMove } from "./lib/groupMove.js";
@@ -47,6 +47,7 @@ let markersVersion = 0; // bumped by mark all / undo: a fetch begun before it is
 let markersSaveTimer = null;
 const huntCache = new Map(); // huntUid -> channels[]
 const portHunt = new Map(); // port -> the (unarchived) hunt its panel last showed
+const huntTitles = new Map(); // huntUid -> the hunt's name, from its unread fetch
 const peeks = new Map(); // port -> {huntUid, channelId}: a chat shown instead of the tab's
 // Channel ids no cached hunt lists (a mini-puzzle's thread, a hunt nobody has open). Each
 // is asked about once; a channel that later joins a list is found there, not here.
@@ -185,6 +186,7 @@ async function doFetchUnread(uid) {
   }
   huntFailed.delete(uid);
   if (typeof res.self_id === "string") selfId = res.self_id;
+  if (typeof res.hunt_name === "string") huntTitles.set(uid, res.hunt_name);
   if (skew !== null) clockSkewMs = skew;
   const before = new Map((huntCache.get(uid) ?? []).map((c) => [c.channel_id, c]));
   const now = snowflakeAt(nowMs());
@@ -252,6 +254,7 @@ async function pushUnread() {
     safePost(port, {
       type: "unread",
       huntUid: chans ? uid : null,
+      huntName: chans ? listHuntName(view.tabEntry?.hunt_uid, uid, huntTitles.get(uid)) : null,
       rows,
       totals: totals(rows),
       undo: undo?.count ?? 0,
@@ -747,6 +750,11 @@ chrome.runtime.onConnect.addListener((port) => {
       else reconcileUnread();
     } else if (msg.type === "peek") await peekChat(port, msg.huntUid, msg.channelId ?? null);
     else if (msg.type === "goto") await gotoChat(port, msg.huntUid, msg.channelId);
+    else if (msg.type === "hunt") {
+      // A reconnecting panel's list: an unloaded background forgot it, and a tab
+      // outside any hunt cannot say which hunt that was.
+      if (typeof msg.huntUid === "string" && !portHunt.has(port)) portHunt.set(port, msg.huntUid);
+    }
     else if (msg.type === "markAllRead") markAllRead();
     else if (msg.type === "undoMarkAll") undoMarkAll();
   });
@@ -1154,6 +1162,7 @@ async function resetDashboardState() {
   await saveMarkersNow(); // the old origin's read markers, before switching
   markersVersion++;
   huntCache.clear();
+  huntTitles.clear();
   huntFailed.clear();
   selfId = null; // the old origin's user
   clockSkewMs = 0; // the old origin's clock

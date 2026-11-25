@@ -7,6 +7,7 @@ import {
   listRows,
   paginate,
   totals,
+  listHuntName,
   applyMessage,
   clearChannel,
   clearAll,
@@ -312,5 +313,20 @@ describe("peekPuzzle", () => {
   it("the general chat is a hunt chat with no puzzle id", () => {
     const p = peekPuzzle(ch({ kind: "general", puzzle_id: null, channel_id: "800", sheet_url: null }), "H1");
     expect(p).toMatchObject({ id: null, hunt_chat: true, channel_id: "800", hunt_uid: "H1" });
+  });
+});
+
+describe("listHuntName", () => {
+  it("names the list's hunt on a tab outside any hunt", () => {
+    expect(listHuntName(undefined, "H1", "Saltmarsh")).toBe("Saltmarsh");
+  });
+  it("names it on a tab from another hunt (a peek)", () => {
+    expect(listHuntName("H2", "H1", "Saltmarsh")).toBe("Saltmarsh");
+  });
+  it("leaves it out on the hunt's own tab", () => {
+    expect(listHuntName("H1", "H1", "Saltmarsh")).toBeNull();
+  });
+  it("is null when the server sent no name (an older dashboard)", () => {
+    expect(listHuntName(undefined, "H1", undefined)).toBeNull();
   });
 });

@@ -52,6 +52,8 @@ img.emoji { height: 1.2em; width: auto; vertical-align: text-bottom; }
 #unread { border-bottom: 1px solid var(--line); background: var(--accent-soft); }
 .u-toggle { width: 100%; display: flex; align-items: center; gap: 6px; padding: 5px 10px; text-align: left; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); }
 #unread .u-toggle { color: var(--dim); }
+.u-toggle { flex-wrap: wrap; }
+.u-toggle .u-hunt { flex-basis: 100%; color: CanvasText; font-weight: 600; text-transform: none; letter-spacing: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .u-toggle .chev { width: 8px; display: inline-block; transition: transform .12s; }
 #unread.open .u-toggle .chev { transform: rotate(90deg); }
 .u-toggle b { color: CanvasText; font-weight: 600; }

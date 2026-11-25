@@ -79,6 +79,13 @@ export function totals(rows) {
   };
 }
 
+// The list keeps its hunt when you move to a tab outside it; it then names that hunt.
+// Null on the hunt's own tab, or when the server sent no name (an older dashboard).
+export function listHuntName(tabHuntUid, listHuntUid, huntName) {
+  if (!huntName || tabHuntUid === listHuntUid) return null;
+  return huntName;
+}
+
 const lastOf = (m) => ({ id: String(m.id), author_name: m.author_name ?? "", content: m.content ?? "", created_at: m.created_at ?? null });
 
 // Fold a live `message` event into one hunt's channels. `known` is false when the

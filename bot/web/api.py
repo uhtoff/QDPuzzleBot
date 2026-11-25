@@ -297,6 +297,8 @@ async def hunt_unread(uid):
         # A string: a Discord id outgrows a JS number. The extension uses it to
         # treat the user's own live messages as read, as `own` does here.
         "self_id": str(user["id"]),
+        # The panel names the hunt when it shows this list on a tab outside it.
+        "hunt_name": hunt["name"],
         # This server's clock. Read markers are made in the extension but judged
         # here (against message ids and solve times), so it corrects its own
         # clock by this rather than trusting the machine it runs on.
