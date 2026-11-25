@@ -8,6 +8,6 @@
   },
   "devDependencies": {
     "vitest": "^4.1.10",
-    "web-ext": "^8.10.0"
+    "web-ext": "^10.8.0"
   }
 }
