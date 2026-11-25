@@ -6,8 +6,6 @@ its own puzzle (puzzle_answers rows cascade on puzzle delete) and deletes it in 
 finally block.
 """
 
-import datetime
-
 from bot.store import PuzzleJsonDb, mydb
 from bot.store.answer_data import AnswerData
 from tests.conftest import live_hunt_id
