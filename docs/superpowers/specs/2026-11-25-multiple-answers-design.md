@@ -138,7 +138,8 @@ Commands (user decisions, 2026-11-25):
   Feeders table, dashboard, Discord) it shows a ✅ instead. A completed puzzle has nothing to
   feed: it never counts as unassigned and isn't counted as Assigned on any meta. Its Feeders-table
   row (if it had a placeholder) stays, shows ✅, and is hidden by the default filter (*my call*),
-  so notes written against it survive. ✅ is no longer stored in `puzzles.solution`.
+  so notes written against it survive. The derived `puzzles.solution` copy reads "✅" for such a
+  puzzle, so readers not yet migrated keep showing the tick.
 - **Backsolved** stays a label on the puzzle, as today.
 - **Unsolve** removes all the puzzle's answers (and so their placements). In the Feeders table the
   first answer row re-keys back to the unsolved placeholder, keeping its Notes; further answer rows
