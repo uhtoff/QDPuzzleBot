@@ -20,6 +20,7 @@ import pytz
 from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
+from bot.core.answers import record_add, record_change, record_partial, record_solve, record_unsolve
 from bot.core import category_layout, hunt_archive, media_gc, mod_invite, voice
 from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS, DEFAULT_HEADER_STYLE, HEADER_COMPACT, HEADER_FULL, HEADER_STYLES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
@@ -1791,11 +1792,7 @@ class PuzzleService:
 
         was_solved, old_solution = puzzle.solved, puzzle.solution or ""
         puzzle.status = "solved"
-        if puzzle.solution and solution:
-            puzzle.solution += "/" + solution
-        elif solution:
-            puzzle.solution = solution
-        puzzle.solved = True
+        record_solve(puzzle, solution, by=solved_by)
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         puzzle.solved_by = solved_by
         PuzzleJsonDb.commit(puzzle)
@@ -1896,8 +1893,7 @@ class PuzzleService:
         """
         was_solved, old_solution = puzzle.solved, puzzle.solution or ""
         puzzle.status = UNSOLVED_STATUS
-        puzzle.solution = ""
-        puzzle.solved = False
+        record_unsolve(puzzle)
         puzzle.solve_time = None
         puzzle.solved_by = None
 
@@ -2478,10 +2474,7 @@ class PuzzleService:
         """
         solution = solution.strip().upper()
         puzzle.status = PARTIAL_STATUS
-        if puzzle.solution:
-            puzzle.solution += "/" + solution
-        else:
-            puzzle.solution = solution
+        record_partial(puzzle, solution)
         PuzzleJsonDb.commit(puzzle)
 
         tag_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
@@ -2495,11 +2488,11 @@ class PuzzleService:
         stamp solve_time, commit, refresh metas and push to Google Sheets."""
         solution = solution.strip().upper()
         old_solution = puzzle.solution or ""
-        puzzle.solution = solution
+        record_change(puzzle, solution)
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
-        if solution != old_solution:
-            await self._announce_to_fed(guild, puzzle, "changed", old_solution, solution)
+        if puzzle.solution != old_solution:
+            await self._announce_to_fed(guild, puzzle, "changed", old_solution, puzzle.solution)
 
         tag_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
         failed_group_ids = await self.refresh_targets(hunt, tag_groups)
@@ -2525,7 +2518,7 @@ class PuzzleService:
         stamp solve_time, commit, refresh metas and push to Google Sheets."""
         solution = solution.strip().upper()
         old_solution = puzzle.solution or ""
-        puzzle.solution += "/" + solution
+        record_add(puzzle, solution)
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
         await self._announce_to_fed(guild, puzzle, "added", old_solution, puzzle.solution)
