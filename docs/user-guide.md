@@ -145,6 +145,12 @@ pick the round or meta it belongs to (or *Unassigned*).
 Either way the bot creates the channel and the sheet and posts a welcome message with all
 the links. A puzzle created in a round channel lands in that round.
 
+Every puzzle gets a channel of its own. If its channel name is already taken in that
+category (a puzzle called "General" next to the hunt's `#general`, or "Foo Bar" next to an
+existing "Foo-Bar"), the bot asks first: **Accept** names the new channel `#general-1`
+(the next free number), **Cancel** creates nothing. The puzzle's own name is unchanged,
+and the `-1` stays on the channel through later tidying. Renaming works the same way.
+
 ### Telling the bot where the puzzle is
 
 The bot guesses the puzzle's page from the hunt URL and the puzzle name. If the guess is
@@ -553,7 +559,8 @@ Then, in either browser:
 1. Stay logged in to the dashboard in the same browser profile; the extension uses that login.
 2. Optionally open the extension's **Options** to change the dashboard address (default
    `https://quarantinedecrypters.com`; the test instance is `https://puzzbot.com`) or to turn
-   on desktop notifications (off by default).
+   on desktop notifications (both off by default). We recommend turning on **Solves** and
+   leaving **Chat messages** off: new messages already show in the panel's unread list.
 3. Reload any dashboard tabs that were already open, so the extension's buttons appear. Do
    the same after each extension update.
 
@@ -564,8 +571,9 @@ Options and click **Allow access to Google Sheets**.
 ### Using it
 
 - **Open the panel:** click the extension's toolbar button. Once open (and pinned, in
-  Chrome) it follows your active tab: a puzzle sheet shows its chat, and a tab that isn't a
-  puzzle shows "not a puzzle". A puzzle's hunt page also shows its chat if you opened it from
+  Chrome) it follows your active tab: a puzzle sheet shows its chat, a hunt board on the
+  dashboard shows that hunt's general channel, and any other tab shows "not a puzzle". The
+  general channel's history in the panel starts from when this feature went live. A puzzle's hunt page also shows its chat if you opened it from
   the dashboard (the **Puzzle page** link, or **Open puzzle as a tab group**); pages opened
   from Discord or the sheet, or with ctrl/cmd/middle-click, show "not a puzzle".
   **Firefox:** the toolbar button is the only way to open the sidebar; Firefox never lets
@@ -580,9 +588,12 @@ Options and click **Allow access to Google Sheets**.
 - **Attachments** show as links (the file name) that open in a new tab; ones the bot has not
   downloaded yet show as plain names.
 - **Unread badge:** counts new messages in puzzles you have open in tabs, except the one
-  showing in an open panel. Desktop notifications, if you turned them on, fire for people's
-  messages and solve announcements, not for a puzzle open in the panel. Clicking one switches
-  to that puzzle's tab. **Firefox:** open the sidebar yourself if it is closed.
+  showing in an open panel.
+- **Desktop notifications** (Options; both off by default): **Solves** notifies once for
+  every puzzle solved in the hunt you're working on, not only the ones you have open;
+  **Chat messages** notifies for people's messages in puzzles you have open in a tab. Neither
+  fires for a chat the panel is showing. Clicking one switches to the puzzle's tab, or opens
+  its sheet. **Firefox:** open the sidebar yourself if it is closed.
 - **Work on this puzzle** (an icon on the puzzle row, a labelled button in the puzzle drawer;
   only for puzzles that have a sheet): switches to the puzzle's sheet, opening it if needed,
   and opens the side panel. **Firefox:** it switches to the sheet, but you open the sidebar
@@ -686,6 +697,9 @@ The full [command reference](commands.md) lists every command; highlights:
 - **Keeping things tidy mid-hunt:** `!sync` (in a group's channel) tags every channel in
   the category into the group; `!rebuild` regenerates meta roll-up sheets;
   `!reconcile apply` heals any drift between Discord, Sheets and the database.
+  If a category's channels end up out of order (solved puzzles above the `———solved———`
+  divider, say), run `!tidy_category` in any of its channels: general (or the meta, while
+  unsolved) goes back on top, then unsolved puzzles, the divider, and solved puzzles below it.
 - **Links between sheets:** in each puzzle's sheet header a **Feeds:** line links to the
   metas it feeds: under **Solution** on the full header, in cell A3 (B3 on a meta) on the
   compact header. Puzzle names in meta and minimeta tables and

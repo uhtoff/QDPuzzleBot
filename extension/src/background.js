@@ -1,23 +1,24 @@
 import { parseSheetUrl } from "./lib/sheetUrl.js";
 import { createRegistry } from "./lib/registry.js";
-import { cacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
-import { bySheetPath, wsUrl, WS_TICKET_PATH, removesOrigin, SHEETS_ORIGINS } from "./lib/origin.js";
+import { cacheValid, huntCacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
+import { bySheetPath, huntChatPath, huntUnreadPath, parseHuntBoardUrl, wsUrl, WS_TICKET_PATH, removesOrigin, SHEETS_ORIGINS } from "./lib/origin.js";
 import { backoffDelay, reconnectVia, resolveAttempt } from "./lib/backoff.js";
 import { invalidateOnNavigate } from "./lib/tabRefresh.js";
 import { createLookupGen } from "./lib/lookupGen.js";
 import { shouldApplyLookup, canClose, planWindowClose } from "./lib/closeSolved.js";
 import { createPageTabs, pageTabsFor } from "./lib/pageTabs.js";
-import { notificationId, parseNotificationId, shouldNotify } from "./lib/notify.js";
+import { chatNotificationId, notificationId, notifyKind, notifyPrefs, parseNotificationId, solvedChannel } from "./lib/notify.js";
 import { createNameCache, resolveName } from "./lib/channelNames.js";
 import { notificationText } from "./lib/discordText.js";
-import { createUnread, badgeText } from "./lib/unread.js";
+import { clockSkew, createMarkers, snowflakeAt } from "./lib/readMarkers.js";
+import { applyMessage, badgeCount, badgeText, clearAll, clearChannel, isListed, listHuntName, listRows, nextGraceEnd, peekPuzzle, totals } from "./lib/unreadList.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
 import { panelWindow } from "./lib/panelWindow.js";
 import { groupMove } from "./lib/groupMove.js";
 import { pickColour, findRoundGroup, findPuzzleGroup } from "./lib/groupColour.js";
 import { needsSocket } from "./lib/connection.js";
 import { createPanelHost } from "./lib/panelHost.js";
-import { apiGet, getOrigin } from "./api.js";
+import { apiGet, apiSend, getOrigin } from "./api.js";
 
 const PANEL_PATH = "src/panel.html";
 // Chrome side panel or Firefox sidebar (Firefox cannot open it from the handlers below).
@@ -34,21 +35,48 @@ const failures = new Map(); // tabId -> "auth" | "error" | "notfound" (transient
 const failedFor = new Map(); // tabId -> {spreadsheetId, gid} the failure was recorded for
 const ports = new Map(); // port -> windowId
 let socketUp = false;
-const isTracked = (channelId) => registry.tabsForChannel(channelId).length > 0;
-let unread = createUnread({ isTracked });
+
+// ---- unread list state ----
+// Read markers persist in chrome.storage.local per dashboard origin. The server answers
+// "what is newer than these" per hunt (POST /api/hunts/<uid>/unread); huntCache holds
+// that answer, kept current from live events between fetches.
+const MARKERS_KEY = "readMarkers";
+let markers = createMarkers();
+let markersOrigin = null;
+let markersVersion = 0; // bumped by mark all / undo: a fetch begun before it is stale
+let markersSaveTimer = null;
+const huntCache = new Map(); // huntUid -> channels[]
+const portHunt = new Map(); // port -> the (unarchived) hunt its panel last showed
+const huntTitles = new Map(); // huntUid -> the hunt's name, from its unread fetch
+const peeks = new Map(); // port -> {huntUid, channelId}: a chat shown instead of the tab's
+// Channel ids no cached hunt lists (a mini-puzzle's thread, a hunt nobody has open). Each
+// is asked about once; a channel that later joins a list is found there, not here.
+const misses = new Set();
+// The server's clock minus this machine's (ms), from the last unread response. Markers
+// and solve times are judged on the server, so "now" for them is nowMs(), not Date.now().
+let clockSkewMs = 0;
+const nowMs = () => Date.now() + clockSkewMs;
+// The dashboard user's Discord id (a string), from the unread response: their own live
+// messages are read, as the server already counts them. null until the first fetch.
+let selfId = null;
+let graceTimer = null; // re-sends the lists when a solved chat's grace window ends
+const huntFetches = new Map(); // huntUid -> {again, promise}
+const huntFailed = new Map(); // huntUid -> ms of its last failed fetch (e.g. an older dashboard)
+const HUNT_RETRY_MS = 60000;
+const UNDO_MS = 8000;
+let undo = null; // {prev, caches, count, timer} after Mark all read
 
 // MV3: the worker is killed when idle; rehydrate the registry before any event.
 const ready = (async () => {
   try {
     const { registryEntries } = await chrome.storage.session.get({ registryEntries: [] });
     registry = createRegistry(registryEntries);
-    const { unreadEntries } = await chrome.storage.session.get({ unreadEntries: [] });
-    unread = createUnread({ isTracked, initial: unreadEntries });
     const { pageTabEntries } = await chrome.storage.session.get({ pageTabEntries: [] });
     pageTabs = createPageTabs(pageTabEntries);
   } catch {
     /* start empty */
   }
+  await loadMarkers();
   updateBadge();
   // Not awaited: the scan does network lookups and must not stall every handler waiting on `ready`.
   scanOpenTabs();
@@ -70,39 +98,311 @@ async function scanOpenTabs() {
 
 const persist = () =>
   chrome.storage.session
-    .set({ registryEntries: registry.entries(), unreadEntries: unread.serialise(), pageTabEntries: pageTabs.entries() })
+    .set({ registryEntries: registry.entries(), pageTabEntries: pageTabs.entries() })
     .catch(() => {});
 
+// The toolbar badge: unread in chats that have a tab open.
 function updateBadge() {
-  chrome.action.setBadgeText({ text: badgeText(unread.total()) }).catch(() => {});
+  const all = [...huntCache.values()].flat();
+  const tracked = registry.entries().map(([, p]) => p.channel_id).filter(Boolean);
+  chrome.action.setBadgeText({ text: badgeText(badgeCount(all, tracked)) }).catch(() => {});
 }
 
-// Channels of the puzzles shown in open panels (active tab of each panel's window).
+// What a panel is showing: a peeked chat, else its window's active tab. `tabEntry` is
+// the tab's puzzle either way. A non-puzzle tab keeps the hunt the panel last showed.
+async function portView(port) {
+  const windowId = ports.get(port);
+  const [tab] = typeof windowId === "number" ? await chrome.tabs.query({ active: true, windowId }).catch(() => []) : [];
+  const tabEntry = tab ? registry.get(tab.id) : undefined;
+  const peek = peeks.get(port);
+  if (peek) return { huntUid: peek.huntUid, channelId: peek.channelId, tabEntry };
+  const huntUid = tabEntry ? (tabEntry.hunt_archived ? null : (tabEntry.hunt_uid ?? null)) : (portHunt.get(port) ?? null);
+  return { huntUid, channelId: tabEntry?.channel_id ?? null, tabEntry };
+}
+
+// Channels shown in open panels: being read, so not counted.
 async function visibleChannels() {
-  const windows = new Set([...ports.values()].filter((w) => typeof w === "number"));
   const out = new Set();
-  for (const windowId of windows) {
-    const [tab] = await chrome.tabs.query({ active: true, windowId }).catch(() => []);
-    const channelId = tab && registry.get(tab.id)?.channel_id;
+  for (const port of ports.keys()) {
+    if (typeof ports.get(port) !== "number") continue;
+    const { channelId } = await portView(port);
     if (channelId) out.add(String(channelId));
   }
   return [...out];
 }
 
-// Clear counts for channels now visible or no longer backed by any tab.
+// The panels' views changed (tab switch, panel closed, tab closed): re-send lists.
 async function reconcileUnread() {
   await ready;
-  const visible = new Set(await visibleChannels());
-  let cleared = false;
-  for (const [channelId] of unread.serialise()) {
-    if (visible.has(channelId) || !isTracked(channelId)) {
-      unread.clear(channelId);
-      cleared = true;
-    }
+  await pushUnread();
+}
+
+async function loadMarkers() {
+  const origin = await getOrigin();
+  const got = await chrome.storage.local.get({ [MARKERS_KEY]: {} }).catch(() => ({}));
+  markers = createMarkers(got?.[MARKERS_KEY]?.[origin]);
+  markersOrigin = origin;
+  // First run: everything already said counts as read.
+  if (markers.ensureBaseline(nowMs())) await saveMarkersNow();
+}
+
+async function saveMarkersNow() {
+  clearTimeout(markersSaveTimer);
+  markersSaveTimer = null;
+  const origin = markersOrigin;
+  if (!origin) return;
+  const got = await chrome.storage.local.get({ [MARKERS_KEY]: {} }).catch(() => null);
+  if (!got) return;
+  const all = { ...(got[MARKERS_KEY] ?? {}), [origin]: markers.stored() };
+  await chrome.storage.local.set({ [MARKERS_KEY]: all }).catch(() => {});
+}
+
+// Looking at a chat moves its marker on every push: batch the writes.
+function saveMarkers() {
+  if (!markersSaveTimer) markersSaveTimer = setTimeout(saveMarkersNow, 2000);
+}
+
+// Hunts worth keeping a list for: those panels show, and those of open puzzle tabs (badge).
+function wantedHunts() {
+  const out = new Set(portHunt.values());
+  for (const { huntUid } of peeks.values()) out.add(huntUid);
+  for (const [, p] of registry.entries()) if (p.hunt_uid && !p.hunt_archived) out.add(p.hunt_uid);
+  return out;
+}
+
+async function doFetchUnread(uid) {
+  const version = markersVersion;
+  const origin = markersOrigin;
+  const known = huntCache.get(uid);
+  const sent = Date.now();
+  const res = await apiSend(huntUnreadPath(uid), "POST", markers.request(known?.map((c) => c.channel_id)));
+  const skew = clockSkew(res?.server_time_ms, sent, Date.now());
+  if (origin !== markersOrigin) return "done"; // the dashboard changed meanwhile
+  if (version !== markersVersion) return "stale"; // marked all read meanwhile: ask again
+  if (!res || res.authRequired || res.error || !Array.isArray(res.channels)) {
+    huntCache.delete(uid); // the list hides; nothing else changes
+    huntFailed.set(uid, Date.now());
+    return "done";
   }
-  if (!cleared) return;
-  persist();
+  huntFailed.delete(uid);
+  if (typeof res.self_id === "string") selfId = res.self_id;
+  if (typeof res.hunt_name === "string") huntTitles.set(uid, res.hunt_name);
+  if (skew !== null) clockSkewMs = skew;
+  const before = new Map((huntCache.get(uid) ?? []).map((c) => [c.channel_id, c]));
+  const now = snowflakeAt(nowMs());
+  // The server sends no solve time: a solve sorts from when it was first seen.
+  huntCache.set(
+    uid,
+    res.channels.map((c) => (c.newly_solved ? { ...c, solved_seq: before.get(c.channel_id)?.solved_seq ?? now } : c)),
+  );
+  for (const c of res.channels) misses.delete(c.channel_id);
+  return "done";
+}
+
+// Single-flight per hunt; a request made while one is in flight runs once more after it.
+function fetchUnread(uid) {
+  const inflight = huntFetches.get(uid);
+  if (inflight) {
+    inflight.again = true;
+    return inflight.promise;
+  }
+  const entry = { again: false, promise: null };
+  entry.promise = (async () => {
+    let outcome;
+    do {
+      entry.again = false;
+      outcome = await doFetchUnread(uid).catch(() => "done");
+    } while (entry.again || outcome === "stale");
+    huntFetches.delete(uid);
+    await pushUnread();
+  })();
+  huntFetches.set(uid, entry);
+  return entry.promise;
+}
+
+const refetchWanted = () => {
+  for (const uid of wantedHunts()) fetchUnread(uid);
+};
+
+// The tab's own puzzle, for the peek bar's "Back to"; null when not peeking.
+function peekInfo(port, view, chans) {
+  if (!peeks.has(port)) return null;
+  const e = view.tabEntry;
+  const own = e?.channel_id ? chans?.find((c) => c.channel_id === e.channel_id) : null;
+  return { name: e?.name ?? null, channelId: e?.channel_id ?? null, unread: own?.unread ?? 0 };
+}
+
+// Send each panel its list; a chat on screen is read up to now.
+async function pushUnread() {
+  await ready;
+  let moved = false;
+  const now = nowMs();
+  for (const port of [...ports.keys()]) {
+    if (typeof ports.get(port) !== "number") continue;
+    const view = await portView(port);
+    const uid = view.huntUid;
+    let chans = uid ? huntCache.get(uid) : undefined;
+    const seen = view.channelId ? chans?.find((c) => c.channel_id === view.channelId) : null;
+    if (seen) {
+      if (markers.look(seen.channel_id, seen.last?.id, now)) moved = true;
+      if (seen.unread || seen.newly_solved) {
+        chans = clearChannel(chans, seen.channel_id);
+        huntCache.set(uid, chans);
+      }
+    }
+    const rows = chans ? listRows(chans, view.channelId, now) : [];
+    safePost(port, {
+      type: "unread",
+      huntUid: chans ? uid : null,
+      huntName: chans ? listHuntName(view.tabEntry?.hunt_uid, uid, huntTitles.get(uid)) : null,
+      rows,
+      totals: totals(rows),
+      undo: undo?.count ?? 0,
+      peek: peekInfo(port, view, chans),
+    });
+  }
+  if (moved) saveMarkers();
   updateBadge();
+  scheduleGraceEnd(now);
+  for (const uid of wantedHunts()) {
+    if (huntCache.has(uid) || huntFetches.has(uid)) continue;
+    if (Date.now() - (huntFailed.get(uid) ?? 0) < HUNT_RETRY_MS) continue;
+    fetchUnread(uid);
+  }
+}
+
+// Nothing else may happen when a solved chat's grace window closes: push then.
+function scheduleGraceEnd(now) {
+  clearTimeout(graceTimer);
+  graceTimer = null;
+  let soonest = null;
+  for (const chans of huntCache.values()) {
+    const end = nextGraceEnd(chans, now);
+    if (end !== null && (soonest === null || end < soonest)) soonest = end;
+  }
+  if (soonest !== null) graceTimer = setTimeout(pushUnread, Math.max(0, soonest - nowMs()) + 50);
+}
+
+function notePortHunt(port, puzzle) {
+  if (puzzle?.hunt_uid && !puzzle.hunt_archived) portHunt.set(port, puzzle.hunt_uid);
+}
+
+const findChannel = (huntUid, channelId) => huntCache.get(huntUid)?.find((c) => c.channel_id === String(channelId)) ?? null;
+
+// Show another chat in this panel; the browser tab stays put. null = back to the tab.
+async function peekChat(port, huntUid, channelId) {
+  await ready;
+  const windowId = ports.get(port);
+  const ch = channelId ? findChannel(huntUid, channelId) : null;
+  const view = await portView(port);
+  if (!ch || view.tabEntry?.channel_id === ch.channel_id) {
+    peeks.delete(port);
+    const [tab] = await chrome.tabs.query({ active: true, windowId }).catch(() => []);
+    if (tab) await refreshTab(tab, port);
+    else await pushUnread();
+    return;
+  }
+  peeks.set(port, { huntUid, channelId: ch.channel_id });
+  warmNames(huntUid);
+  const bridgeOn = view.tabEntry?.bridge_enabled !== false;
+  safePost(port, {
+    type: "puzzle",
+    tabId: null,
+    puzzle: { ...peekPuzzle(ch, huntUid), bridge_enabled: bridgeOn },
+    channelNames: namesFor(huntUid, names.cached(huntUid)),
+    state: bridgeOn ? "chat" : "unavailable",
+    peek: peekInfo(port, view, huntCache.get(huntUid)),
+  });
+  await pushUnread();
+}
+
+// Go to the chat's puzzle: its open tab (this window first), else its sheet in a new
+// tab, else (general chat, or no sheet) the hunt board.
+async function gotoChat(port, huntUid, channelId) {
+  await ready;
+  const windowId = ports.get(port);
+  if (!findChannel(huntUid, channelId) || typeof windowId !== "number") return;
+  peeks.delete(port);
+  const tab = await openChannel(huntUid, channelId, windowId);
+  if (!tab) return;
+  // Already the active tab (no activation event follows): show it now.
+  const fresh = await chrome.tabs.get(tab.id).catch(() => null);
+  if (fresh && fresh.windowId === windowId) await refreshTab(fresh, port);
+}
+
+// Focus the chat's open tab (this window first) and return it; else open its sheet,
+// or (general chat, no sheet, or a chat the list does not hold, e.g. a mini) the hunt
+// board, in a new tab and return null.
+async function openChannel(huntUid, channelId, windowId) {
+  const ch = findChannel(huntUid, channelId);
+  const board = async () => (await getOrigin()) + "/hunts/" + encodeURIComponent(huntUid);
+  if (!ch) {
+    await chrome.tabs.create({ url: await board(), windowId, active: true }).catch(() => {});
+    return null;
+  }
+  const tabs = (await Promise.all(registry.tabsForChannel(ch.channel_id).map((id) => chrome.tabs.get(id).catch(() => null)))).filter(Boolean);
+  const tab = tabs.find((t) => t.windowId === windowId) ?? tabs[0];
+  if (tab) {
+    await focusTab(tab);
+    return tab;
+  }
+  const url = ch.kind === "puzzle" && ch.sheet_url ? ch.sheet_url : await board();
+  await chrome.tabs.create({ url, windowId, active: true }).catch(() => {});
+  return null;
+}
+
+function markAllRead() {
+  const now = nowMs();
+  const prev = markers.markAll(now);
+  markersVersion++;
+  const caches = new Map(huntCache);
+  let count = 0;
+  for (const [uid, chans] of huntCache) {
+    count += chans.filter((ch) => isListed(ch, now)).length;
+    huntCache.set(uid, clearAll(chans));
+  }
+  clearTimeout(undo?.timer);
+  undo = {
+    prev,
+    caches,
+    count,
+    timer: setTimeout(() => {
+      undo = null;
+      pushUnread();
+    }, UNDO_MS),
+  };
+  saveMarkersNow();
+  pushUnread();
+}
+
+function undoMarkAll() {
+  if (!undo) return;
+  clearTimeout(undo.timer);
+  markers.restore(undo.prev);
+  markersVersion++;
+  for (const [uid, chans] of undo.caches) huntCache.set(uid, chans);
+  undo = null;
+  saveMarkersNow();
+  pushUnread();
+  for (const uid of huntCache.keys()) fetchUnread(uid); // catch up on anything said meanwhile
+}
+
+// A board change (a solve, a new puzzle) may change a hunt's list: refetch, debounced.
+const boardTimers = new Map();
+// Puzzle channel -> ms its solve last notified: one solve is announced in the puzzle's
+// own channel and in each meta it feeds, and should notify once.
+const solveNotified = new Map();
+const SOLVE_DEDUP_MS = 2 * 60000;
+function boardChanged(uid) {
+  if (!wantedHunts().has(uid) && !huntCache.has(uid)) return;
+  clearTimeout(boardTimers.get(uid));
+  boardTimers.set(
+    uid,
+    setTimeout(() => {
+      boardTimers.delete(uid);
+      fetchUnread(uid);
+    }, 1500),
+  );
 }
 
 const names = createNameCache({
@@ -119,27 +419,69 @@ const huntNames = (huntUid, wantId) => withTimeout(names.ensure(huntUid, wantId)
 
 async function handleMessage(ev) {
   await ready;
-  if (!unread.onEvent(ev, await visibleChannels())) return;
-  persist();
-  updateBadge();
-  const { notify } = await chrome.storage.sync.get({ notify: false }).catch(() => ({ notify: false }));
-  if (!notify || !shouldNotify(ev.message)) return;
-  // "notifications" is an optional permission: skip silently until/unless granted.
-  if (!chrome.notifications || !(await chrome.permissions.contains({ permissions: ["notifications"] }).catch(() => false))) return;
-  const channelId = String(ev.channel_id);
+  const channelId = ev.channel_id == null ? null : String(ev.channel_id);
+  if (!channelId) return;
+  const visible = await visibleChannels();
+  let known = false;
+  for (const [uid, chans] of huntCache) {
+    const r = applyMessage(chans, ev, { visible, markers, selfId });
+    if (!r.known) continue;
+    known = true;
+    huntCache.set(uid, r.channels);
+  }
+  // A chat no cached hunt knows (e.g. a puzzle created a moment ago): ask once.
+  if (!known && ev.message?.kind === 0 && !misses.has(channelId)) {
+    misses.add(channelId);
+    refetchWanted();
+  }
+  await pushUnread();
+  const kind = notifyKind(ev.message);
+  if (!kind) return;
+  const prefs = notifyPrefs(
+    await chrome.storage.sync.get(["notify", "notifyMessages", "notifySolves"]).catch(() => ({})),
+  );
+  if (kind === "message" && prefs.messages) await notifyMessage(ev, channelId, visible);
+  else if (kind === "solve" && prefs.solves) await notifySolve(ev, channelId, visible);
+}
+
+// "notifications" is an optional permission: skip silently until/unless granted.
+const canNotify = async () =>
+  !!chrome.notifications && (await chrome.permissions.contains({ permissions: ["notifications"] }).catch(() => false));
+
+const showNotification = (id, title, message) =>
+  chrome.notifications
+    .create(id, { type: "basic", iconUrl: chrome.runtime.getURL("icons/icon128.png"), title, message })
+    .catch(() => {});
+
+// A person's message: only in a chat with an open tab that no panel shows.
+async function notifyMessage(ev, channelId, visible) {
+  if (!registry.tabsForChannel(channelId).length || visible.includes(channelId)) return;
+  if (!(await canNotify())) return;
   const tabId = registry.tabsForChannel(channelId)[0];
   const huntMap = await huntNames(registry.get(tabId)?.hunt_uid, wantedChannel(ev.message));
   const text = notificationText(ev.message, (id) => resolveName(id, huntMap, registryName));
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab) return;
-  chrome.notifications
-    .create(notificationId(tabId, tab.windowId), {
-      type: "basic",
-      iconUrl: chrome.runtime.getURL("icons/icon128.png"),
-      title: registry.get(tabId)?.name ?? "Puzzle chat",
-      message: text,
-    })
-    .catch(() => {});
+  showNotification(notificationId(tabId, tab.windowId), registry.get(tabId)?.name ?? "Puzzle chat", text);
+}
+
+// A solve: anywhere in a hunt the extension follows (open tabs, the panel's hunt), once
+// per puzzle, unless the announcement is on screen in a panel.
+async function notifySolve(ev, channelId, visible) {
+  const huntUid = [...huntCache].find(([, chans]) => chans.some((c) => c.channel_id === channelId))?.[0];
+  const target = solvedChannel(ev.message, channelId);
+  if (!huntUid || !target) return;
+  const now = Date.now();
+  for (const [id, at] of solveNotified) if (now - at > SOLVE_DEDUP_MS) solveNotified.delete(id);
+  if (solveNotified.has(target)) return;
+  solveNotified.set(target, now);
+  if (visible.includes(channelId) || visible.includes(target) || !(await canNotify())) return;
+  const huntMap = await huntNames(huntUid, target);
+  const name = findChannel(huntUid, target)?.name ?? resolveName(target, huntMap, registryName);
+  const text = notificationText(ev.message, (id) => resolveName(id, huntMap, registryName));
+  const win = await chrome.windows.getLastFocused().catch(() => null);
+  if (typeof win?.id !== "number") return;
+  showNotification(chatNotificationId(huntUid, target, win.id), name ? "Solved: " + name : "Puzzle solved", text);
 }
 
 // chrome.notifications is undefined until the optional permission is granted, so register
@@ -154,6 +496,10 @@ function registerNotificationClick() {
     // Synchronously, before any await, to stay inside the click's user gesture; Chrome may still reject it.
     panelHost.open(target.windowId);
     chrome.notifications.clear(id);
+    if (target.huntUid) {
+      await openChannel(target.huntUid, target.channelId, target.windowId);
+      return;
+    }
     const tab = await chrome.tabs.get(target.tabId).catch(() => null);
     if (!tab) return;
     chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
@@ -241,6 +587,29 @@ async function lookup(tabId, parsed, windowId, page = false) {
   return true;
 }
 
+// A hunt board on the dashboard shows that hunt's general channel. Same contract as
+// lookup(). The entry has no sheet, id or sheet_mode, so the sheet-only paths
+// (close solved, files-mode tab reuse) never match it.
+async function lookupHunt(tabId, uid, windowId) {
+  const token = lookupGen.begin(tabId);
+  if (huntCacheValid(registry.get(tabId), uid)) {
+    if (registry.setWindow(tabId, windowId)) persist();
+    return true;
+  }
+  const res = await apiGet(huntChatPath(uid));
+  if (!lookupGen.isCurrent(tabId, token)) return false;
+  registry.delete(tabId);
+  failedFor.delete(tabId);
+  if (res.authRequired) failures.set(tabId, "auth");
+  else if (res.error) failures.set(tabId, res.status === 404 ? "notfound" : "error");
+  else {
+    failures.delete(tabId);
+    registry.set(tabId, { ...res.puzzle, bridge_enabled: res.bridge_enabled, windowId });
+  }
+  persist();
+  return true;
+}
+
 // First channel mention in a message (content or embeds), to trigger a refetch on a miss.
 function wantedChannel(message) {
   const text = [message?.content, ...(message?.embeds ?? []).flatMap((e) => [e?.title, e?.description])].join(" ");
@@ -266,7 +635,7 @@ async function snapshot(tabId) {
   const puzzle = registry.get(tabId) ?? null;
   const channelNames = namesFor(puzzle?.hunt_uid, names.cached(puzzle?.hunt_uid));
   if (puzzle?.hunt_uid) warmNames(puzzle.hunt_uid);
-  return { type: "puzzle", tabId, puzzle, channelNames, state: stateFor(puzzle ?? undefined, failures.get(tabId)) };
+  return { type: "puzzle", tabId, puzzle, channelNames, state: stateFor(puzzle ?? undefined, failures.get(tabId)), peek: null };
 }
 
 // Refresh a tab's state; deliver the snapshot to panels of that tab's window
@@ -277,9 +646,13 @@ async function refreshTab(tab, only) {
   if (invalidateOnNavigate({ tab, registry, failures, failedFor, lookupGen, ports, post: safePost })) persist();
   const sheet = parseSheetUrl(tab.url ?? "");
   // A hunt page the extension opened shows its puzzle's chat. Its URL is unreadable while it
-  // is on the hunt site; a readable non-sheet URL (the dashboard, say) is "not a puzzle".
+  // is on the hunt site. A dashboard hunt board shows the hunt's general channel; any
+  // other readable non-sheet URL is "not a puzzle".
   const pageSheet = !sheet && !tab.url && !tab.pendingUrl ? pageTabs.get(tabId) : null;
-  if (!sheet && !pageSheet) {
+  const huntUid = !sheet && !pageSheet ? parseHuntBoardUrl(tab.url ?? "", await getOrigin()) : null;
+  if (huntUid) {
+    if (!(await lookupHunt(tabId, huntUid, tab.windowId))) return; // superseded
+  } else if (!sheet && !pageSheet) {
     lookupGen.begin(tabId); // invalidate any in-flight lookup for the old URL
     registry.delete(tabId);
     failures.delete(tabId);
@@ -295,6 +668,8 @@ async function refreshTab(tab, only) {
   if (!lookupGen.isCurrent(tabId, token)) return; // a newer lookup began meanwhile
   for (const [p, windowId] of ports) {
     if ((only && p !== only) || !shouldDeliver(windowId, fresh)) continue;
+    if (peeks.has(p)) continue; // showing another chat: Back or a tab switch returns to this one
+    notePortHunt(p, snap.puzzle);
     safePost(p, snap);
   }
   reconcileUnread();
@@ -382,6 +757,8 @@ chrome.tabs.onCreated.addListener(async (tab) => {
   if (registry.setWindow(tab.id, tab.windowId)) persist();
 });
 chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
+  // Switching tab ends a peek: the panel follows the tab again. Before any await.
+  for (const [p, w] of ports) if (w === windowId) peeks.delete(p);
   await ready;
   if (registry.setWindow(tabId, windowId)) persist();
   const tab = await chrome.tabs.get(tabId).catch(() => null);
@@ -408,15 +785,28 @@ chrome.runtime.onConnect.addListener((port) => {
   ports.set(port, null);
   port.onDisconnect.addListener(() => {
     ports.delete(port);
+    portHunt.delete(port);
+    peeks.delete(port);
     reconcileUnread();
   });
   safePost(port, { type: "socket", connected: socketUp });
   port.onMessage.addListener(async (msg) => {
-    if (msg.type !== "get" || typeof msg.windowId !== "number") return;
+    if (!msg || typeof msg.windowId !== "number") return;
     ports.set(port, msg.windowId);
-    const [tab] = await chrome.tabs.query({ active: true, windowId: msg.windowId });
-    if (tab) await refreshTab(tab, port);
-    else reconcileUnread();
+    if (msg.type === "get") {
+      peeks.delete(port); // "show me my tab"
+      const [tab] = await chrome.tabs.query({ active: true, windowId: msg.windowId });
+      if (tab) await refreshTab(tab, port);
+      else reconcileUnread();
+    } else if (msg.type === "peek") await peekChat(port, msg.huntUid, msg.channelId ?? null);
+    else if (msg.type === "goto") await gotoChat(port, msg.huntUid, msg.channelId);
+    else if (msg.type === "hunt") {
+      // A reconnecting panel's list: an unloaded background forgot it, and a tab
+      // outside any hunt cannot say which hunt that was.
+      if (typeof msg.huntUid === "string" && !portHunt.has(port)) portHunt.set(port, msg.huntUid);
+    }
+    else if (msg.type === "markAllRead") markAllRead();
+    else if (msg.type === "undoMarkAll") undoMarkAll();
   });
 });
 
@@ -692,6 +1082,8 @@ function setSocket(up) {
   if (socketUp !== up) {
     socketUp = up;
     broadcast({ type: "socket", connected: up });
+    // (Re)connected: anything said while the link was down is missing from the lists.
+    if (up) ready.then(refetchWanted);
   }
 }
 
@@ -761,7 +1153,7 @@ async function doConnect() {
     if (ev && ["message", "message_edit", "message_delete"].includes(ev.type)) {
       broadcast({ type: "event", event: ev });
       if (ev.type === "message") handleMessage(ev);
-    }
+    } else if (ev && ev.type === "board" && ev.uid) boardChanged(ev.uid);
   };
   ws.onclose = () => {
     setSocket(false);
@@ -791,6 +1183,8 @@ chrome.alarms.get(WATCHDOG_ALARM).then((a) => {
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === RECONNECT_ALARM) connect();
   else if (alarm.name === WATCHDOG_ALARM && needsSocket(ws?.readyState)) {
+    // No live events while the link is down: keep open panels' lists roughly current.
+    if (ports.size) ready.then(refetchWanted);
     // A backoff retry already pending (timer or alarm) owns the schedule.
     if (timer !== null || (await chrome.alarms.get(RECONNECT_ALARM).catch(() => null))) return;
     connect();
@@ -815,7 +1209,21 @@ async function resetDashboardState() {
   failedFor.clear();
   registry = createRegistry();
   pageTabs = createPageTabs(); // the old server's puzzles
-  unread = createUnread({ isTracked });
+  await saveMarkersNow(); // the old origin's read markers, before switching
+  markersVersion++;
+  huntCache.clear();
+  huntTitles.clear();
+  huntFailed.clear();
+  selfId = null; // the old origin's user
+  clockSkewMs = 0; // the old origin's clock
+  clearTimeout(graceTimer);
+  graceTimer = null;
+  portHunt.clear();
+  peeks.clear();
+  misses.clear();
+  clearTimeout(undo?.timer);
+  undo = null;
+  await loadMarkers();
   persist();
   updateBadge();
   broadcast({ type: "reset" });

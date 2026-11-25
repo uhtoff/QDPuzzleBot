@@ -33,9 +33,17 @@ The same source runs in desktop Firefox 140 or later (not Firefox for Android, w
 sidebar). `manifest.json` is the Chrome manifest; the Firefox one is generated from it by
 `scripts/firefoxManifest.js` at package time, so never edit a copy under `dist/`.
 
-- **Try it locally:** `bash package.sh firefox`, then in Firefox open
-  `about:debugging#/runtime/this-firefox`, **Load Temporary Add-on** and pick
-  `dist/firefox/manifest.json`. It stays loaded until Firefox restarts.
+- **Try it locally:** `bash package.sh firefox` on the build host (it also runs Mozilla's
+  linter, `web-ext lint`, and stops on any error; `npm run lint:firefox` re-runs it alone).
+  Copy the zip to the machine you test on, e.g. from PowerShell:
+  `scp <user>@<build-host>:projects/puzzbot/extension/dist/puzzle-chat-firefox-<version>.zip $HOME\`.
+  In Firefox there, open `about:debugging#/runtime/this-firefox`, **Load Temporary
+  Add-on…** and pick the zip itself (no unpacking needed). It stays loaded until Firefox
+  restarts. After a rebuild, **Remove** the add-on, copy the zip again (Firefox holds the
+  loaded zip open, so copying over it first fails) and load the new zip; **Reload** re-reads
+  the old file. **Remove** uninstalls it, which drops its settings and granted access: open
+  Options again, set the dashboard address (e.g. the test site) and allow access, or hunt
+  boards show "Not a puzzle sheet." and the unread list stays empty.
 - **Release:** upload `dist/puzzle-chat-firefox-<version>.zip` to addons.mozilla.org as an
   **unlisted** add-on (Mozilla signs it; it is not searchable). Notes for the submission
   form: `store/amo-notes.md`. Then publish the signed file from the live dashboard:
@@ -61,7 +69,16 @@ sidebar). `manifest.json` is the Chrome manifest; the Firefox one is generated f
 - **Dashboard origin** - defaults to `https://quarantinedecrypters.com` (live). The test
   instance is `https://puzzbot.com`. Saving asks Chrome for permission to that origin; if you
   refuse, the origin is not saved. https only, no path.
-- **Desktop notifications for new messages** - off by default.
+- **Desktop notifications** - two switches, both off by default (turning either on asks
+  for the optional notifications permission; turning both off gives it back):
+  - **Solves**: every puzzle solved in a hunt the extension is following (one with a tab
+    open, or the panel's hunt), once per puzzle even though the bot announces it in the
+    puzzle and in each meta it feeds. Clicking one goes to the puzzle's tab, or opens its
+    sheet (the hunt board for a puzzle without one). The user guide recommends this on.
+  - **Chat messages**: people's messages in puzzles you have open in a tab, unless the
+    panel is showing that chat. The user guide recommends this off: the unread list
+    already shows them.
+  An older single "notifications" setting carries over to both.
 
 ## Server config: `web.extension_origins`
 

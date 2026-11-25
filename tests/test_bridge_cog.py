@@ -42,10 +42,15 @@ def test_kind_human_bot_command():
 async def test_on_message_gate_drops_non_puzzle_channel():
     cog = _make_cog()
     # 777 is unknown -> lazy DB lookup says "not a puzzle channel"; dropped + negative-cached.
-    with patch.object(cog, "_lookup_puzzle_channel", return_value=False) as look:
+    # (The hunt lookup is new: an unknown channel is also checked against hunts.)
+    with patch.object(cog, "_lookup_puzzle_channel", return_value=False) as look, \
+         patch.object(cog, "_lookup_hunt_channel", return_value=False) as hunt_look:
         await cog.on_message(_msg(mid=1, cid=777, author_id=1, is_bot=False, content="hi"))
+        # A second message is served from the negative cache: no further lookups.
+        await cog.on_message(_msg(mid=2, cid=777, author_id=1, is_bot=False, content="again"))
     assert cog._queue.empty()
     look.assert_called_once_with(777)
+    hunt_look.assert_called_once_with(777)
     assert 777 in cog._non_puzzle_channels
 
 
@@ -254,3 +259,63 @@ def test_kind_relay_webhook_is_human_unknown_webhook_is_other_bot():
         assert cog._kind_for(mine) == KIND_THIS_BOT
     finally:
         channel_relay._hooks.clear()
+
+
+# --- Hunt general channels (chat extension's dashboard view) -----------------
+
+async def test_on_message_captures_hunt_general_channel_without_puzzle_lookup():
+    cog = _make_cog()
+    cog._hunt_channels = {300}
+    with patch.object(cog, "_lookup_puzzle_channel", return_value=False) as look:
+        await cog.on_message(_msg(mid=5, cid=300, author_id=1, is_bot=False, content="hi"))
+    assert cog._queue.get_nowait()["channel_id"] == 300
+    look.assert_not_called()
+
+
+async def test_worker_keeps_first_bot_embed_in_hunt_general_channel():
+    """The first-welcome skip is for brand-new puzzle channels. A hunt general
+    channel already has history when mirroring starts, so its first bot embed
+    (e.g. a solve announcement) is a real message and must be stored."""
+    cog = _make_cog()
+    cog._hunt_channels = {300}
+    rec = {"op": "insert", "id": 1, "channel_id": 300, "guild_id": 42, "author_id": 999,
+           "author_name": "Bot", "author_avatar": None, "kind": 1, "content": "",
+           "embeds": '[{"title": "SOLVED!"}]',
+           "reference_id": None, "created_at": "t", "attachments": []}
+    with patch("bot.cogs.bridge.MessageDb") as db:
+        db.channel_has_messages.return_value = False
+        await cog._handle(rec)
+    db.write.assert_called_once()
+
+
+def test_load_hunt_channels_uses_dedicated_connection():
+    from bot.cogs.bridge import MessageBridge
+    import bot.store as store
+
+    dedicated = MagicMock()
+    dedicated.dict_cursor.return_value.fetchall.return_value = [{"channel_id": 300}]
+    shared_mydb = MagicMock()
+
+    with patch.object(store, "bridge_channels_conn", dedicated), \
+         patch.object(store, "mydb", shared_mydb):
+        result = MessageBridge._load_hunt_channels()
+
+    assert result == {300}
+    sql = dedicated.dict_cursor.return_value.execute.call_args.args[0]
+    assert "FROM hunts" in sql
+    shared_mydb.dict_cursor.assert_not_called()
+
+
+async def test_on_message_lazily_tracks_a_new_hunts_general_channel():
+    """A hunt made since the last refresh: its general channel is not in
+    _hunt_channels yet, so the lazy lookup must find it on the first message."""
+    cog = _make_cog()
+    with patch.object(cog, "_lookup_puzzle_channel", return_value=False), \
+         patch.object(cog, "_lookup_hunt_channel", side_effect=lambda cid: cid == 300) as look:
+        await cog.on_message(_msg(mid=5, cid=300, author_id=1, is_bot=False, content="hi"))
+        await cog.on_message(_msg(mid=6, cid=301, author_id=1, is_bot=False, content="no"))
+        await cog.on_message(_msg(mid=7, cid=300, author_id=1, is_bot=False, content="again"))
+    assert [cog._queue.get_nowait()["id"] for _ in range(2)] == [5, 7]
+    assert cog._queue.empty()
+    assert 300 in cog._hunt_channels and 301 not in cog._hunt_channels
+    assert [c.args for c in look.call_args_list] == [(300,), (301,)]

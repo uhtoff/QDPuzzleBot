@@ -13,6 +13,11 @@ export function cacheValid(entry, parsed, page = false) {
   );
 }
 
+// Is the cached registry entry still the answer for the hunt board of `uid`?
+export function huntCacheValid(entry, uid) {
+  return !!entry && entry.hunt_chat === true && !!uid && entry.hunt_uid === uid;
+}
+
 // Does this URL need a fresh lookup (vs the cached registry entry)? A sheet URL
 // whose spreadsheet/gid differs from the entry does; a non-sheet URL does not.
 export function needsLookup(entry, url) {

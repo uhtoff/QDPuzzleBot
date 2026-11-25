@@ -48,5 +48,5 @@ Run against the test instance (`https://puzzbot.com`, staging) before uploading:
    sheet open in a tab, and leave Firefox idle for 5+ minutes so the background page can be
    suspended. Then post in that puzzle's Discord channel: the unread badge should appear within
    about a minute.
-9. With notifications on and the sidebar still closed, repeat step 8: the notification appears,
+9. With Chat messages notifications on and the sidebar still closed, repeat step 8: the notification appears,
    and clicking it switches to the puzzle tab.

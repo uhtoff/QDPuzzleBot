@@ -10,7 +10,7 @@ from quart import Blueprint, jsonify, make_response, request, send_file, session
 
 from .typed_app import bot_app, puzzles_cog
 
-from . import data, events, ws_ticket
+from . import data, events, unread, ws_ticket
 from .auth import (
     ADMIN_ROLES,
     current_user,
@@ -232,6 +232,77 @@ async def puzzle_by_sheet():
         },
         "bridge_enabled": bool(config.web_bridge_enabled),
     })
+
+
+@api_bp.route("/hunts/<uid>/chat")
+@login_required
+async def hunt_chat(uid):
+    """The hunt's general channel, in the by-sheet lookup's shape, for the chat
+    extension's panel while the hunt board is open on the dashboard. Not a
+    puzzle: no id, never solved, no sheet."""
+    hunt, guild_or_status = await _load_visible_hunt(uid)
+    if hunt is None:
+        # 404 for hidden as well as missing: don't reveal which.
+        return jsonify({"error": "not_found_or_forbidden"}), 404
+    assert isinstance(guild_or_status, dict)  # the (hunt, guild_info) branch
+    guild_snowflake = guild_or_status.get("guild_snowflake")
+    channel_id = hunt.get("channel_id")
+    return jsonify({
+        "puzzle": {
+            "id": None,
+            "name": f"{hunt['name']} (general)",
+            "solved": False,
+            "channel_id": str(channel_id) if channel_id else None,
+            "discord_url": (f"https://discord.com/channels/{guild_snowflake}/{channel_id}"
+                            if guild_snowflake and channel_id else None),
+            "sheet_url": None,
+            "hunt_uid": hunt["uid"],
+            "hunt_archived": bool(hunt["archived"]),
+            "sheet_mode": None,
+            "hunt_chat": True,
+        },
+        "bridge_enabled": bool(config.web_bridge_enabled),
+    })
+
+
+@api_bp.route("/hunts/<uid>/unread", methods=["POST"])
+@login_required
+async def hunt_unread(uid):
+    """Which of the hunt's chats have messages newer than the extension's read
+    markers, for its unread list. Read-only: a POST only because the markers can
+    outgrow a query string. Read state itself stays in the extension."""
+    user = current_user()
+    assert user is not None
+    hunt, guild_or_status = await _load_visible_hunt(uid)
+    if hunt is None:
+        # 404 for hidden as well as missing: don't reveal which.
+        return jsonify({"error": "not_found_or_forbidden"}), 404
+    assert isinstance(guild_or_status, dict)  # the (hunt, guild_info) branch
+    parsed = unread.parse_markers(await request.get_json(silent=True))
+    if parsed is None:
+        return jsonify({"error": "bad_markers"}), 400
+    baseline, read = parsed
+    guild_snowflake = guild_or_status.get("guild_snowflake")
+    puzzles = await data.get_hunt_puzzles(hunt, guild_snowflake)
+    ids = ([int(hunt["channel_id"])] if hunt.get("channel_id") else []) + [
+        int(p["channel_id"]) for p in puzzles
+        if p.get("channel_id") and not p.get("parent_puzzle_id")]
+    own = await data.get_own_last_message_ids(ids, int(user["id"]), baseline)
+    markers = unread.effective_markers(ids, baseline, read, own)
+    counts = await data.get_unread_counts(markers)
+    lasts = await data.get_messages_by_ids([c["last_id"] for c in counts.values()])
+    return jsonify({"channels": unread.build_channels(
+        hunt, puzzles, guild_snowflake, markers, counts, lasts,
+        solve_markers=unread.effective_markers(ids, baseline, read, {})),
+        # A string: a Discord id outgrows a JS number. The extension uses it to
+        # treat the user's own live messages as read, as `own` does here.
+        "self_id": str(user["id"]),
+        # The panel names the hunt when it shows this list on a tab outside it.
+        "hunt_name": hunt["name"],
+        # This server's clock. Read markers are made in the extension but judged
+        # here (against message ids and solve times), so it corrects its own
+        # clock by this rather than trusting the machine it runs on.
+        "server_time_ms": int(time.time() * 1000)})
 
 
 @api_bp.route("/channels/<int:channel_id>/messages")

@@ -31,6 +31,35 @@ export function bySheetPath({ spreadsheetId, gid }) {
   return "/api/puzzles/by-sheet?" + q;
 }
 
+// The hunt uid when `url` is a hunt board on the dashboard (`<origin>/hunts/<uid>`,
+// any query), else null. Other dashboard pages (hunt list, settings) are not hunts.
+export function parseHuntBoardUrl(url, origin) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  if (!origin || u.origin !== origin) return null;
+  const m = /^\/hunts\/([^/]+)\/?$/.exec(u.pathname);
+  if (!m) return null;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return null;
+  }
+}
+
+// The hunt's general channel, in the by-sheet lookup's shape.
+export function huntChatPath(uid) {
+  return "/api/hunts/" + encodeURIComponent(uid) + "/chat";
+}
+
+// The unread summary for the extension's unread list (POST, with read markers).
+export function huntUnreadPath(uid) {
+  return "/api/hunts/" + encodeURIComponent(uid) + "/unread";
+}
+
 export function messagesPath(channelId) {
   return "/api/channels/" + encodeURIComponent(channelId) + "/messages?limit=50";
 }

@@ -618,6 +618,29 @@ class TestCreatePuzzleFromRegion:
         assert resp.status_code == 400
         create.upd.assert_not_called()
 
+    async def test_a_channel_name_clash_asks_first_and_does_not_link(self, web, create):
+        """Same shared create step as the board: a clash is a 409 carrying the
+        suggested name (the dashboard prompts), nothing is linked, and an
+        accepted resend asks for the -N name."""
+        from bot.core.errors import ChannelNameClash
+        web.cog.service.create_puzzle = AsyncMock(
+            side_effect=ChannelNameClash("hex-maze", "hex-maze-1"))
+        resp = await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "Hex maze", "round_id": 2, "role": "locates"})
+        assert resp.status_code == 409
+        assert (await resp.get_json())["suggested"] == "hex-maze-1"
+        assert web.cog.service.create_puzzle.await_args.kwargs["on_channel_clash"] == "ask"
+        create.upd.assert_not_called()
+
+        web.cog.service.create_puzzle = AsyncMock(return_value=MagicMock(id=42))
+        resp = await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "Hex maze", "round_id": 2, "role": "locates",
+                  "accept_channel_suffix": True})
+        assert resp.status_code == 201
+        assert web.cog.service.create_puzzle.await_args.kwargs["on_channel_clash"] == "suffix"
+
     async def test_a_sheet_failure_is_a_clean_error_and_does_not_link(self, web, create):
         """A files hunt copies the puzzle's file inline; a Google failure there
         creates nothing, so the route reports it rather than 500ing."""

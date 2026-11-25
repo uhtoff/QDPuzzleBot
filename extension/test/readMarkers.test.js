@@ -1,0 +1,127 @@
+import { describe, it, expect } from "vitest";
+import { DISCORD_EPOCH_MS, MAX_READ, snowflakeAt, maxId, createMarkers, clockSkew } from "../src/lib/readMarkers.js";
+
+const T = 1700000000000; // 2023-11-14T22:13:20Z
+const snow = (ms) => String((BigInt(ms) - 1420070400000n) << 22n);
+
+describe("snowflakeAt", () => {
+  it("encodes a time as a Discord snowflake string", () => {
+    expect(DISCORD_EPOCH_MS).toBe(1420070400000n);
+    expect(snowflakeAt(T)).toBe(snow(T));
+    expect(BigInt(snowflakeAt(T + 1000)) > BigInt(snowflakeAt(T))).toBe(true);
+  });
+});
+
+describe("maxId", () => {
+  it("compares numerically, not as strings", () => {
+    expect(maxId("9", "10")).toBe("10");
+    expect(maxId("10", "9")).toBe("10");
+  });
+  it("ignores empty values and is null when nothing is left", () => {
+    expect(maxId(null, "5", undefined, "")).toBe("5");
+    expect(maxId(null, undefined, "")).toBeNull();
+  });
+  it("is exact beyond 2^53", () => {
+    expect(maxId("9007199254740992", "9007199254740993")).toBe("9007199254740993");
+  });
+});
+
+describe("createMarkers", () => {
+  it("sets a baseline once, on first run only", () => {
+    const m = createMarkers();
+    expect(m.ensureBaseline(T)).toBe(true);
+    expect(m.state().baseline).toBe(snow(T));
+    expect(m.ensureBaseline(T + 60000)).toBe(false);
+    expect(m.state().baseline).toBe(snow(T));
+  });
+  it("keeps a stored baseline", () => {
+    const m = createMarkers({ baseline: "100", read: {} });
+    expect(m.ensureBaseline(T)).toBe(false);
+    expect(m.state()).toEqual({ baseline: "100", read: {} });
+  });
+  it("effective is the larger of baseline and the channel's own marker", () => {
+    const m = createMarkers({ baseline: "100", read: { a: "150", b: "50" } });
+    expect(m.effective("a")).toBe("150");
+    expect(m.effective("b")).toBe("100");
+    expect(m.effective("c")).toBe("100");
+  });
+  it("look stores now when it is later than the newest message", () => {
+    const m = createMarkers({ baseline: "100", read: {} });
+    expect(m.look("a", "120", T)).toBe(true);
+    expect(m.effective("a")).toBe(snow(T));
+    expect(m.effective("b")).toBe("100");
+  });
+  it("look stores the newest message when it is later than now", () => {
+    const m = createMarkers({ baseline: "100", read: {} });
+    const later = String(BigInt(snow(T)) + 5n);
+    m.look("a", later, T);
+    expect(m.effective("a")).toBe(later);
+  });
+  it("look reports no change when nothing moves", () => {
+    const m = createMarkers({ baseline: "100", read: {} });
+    m.look("a", "120", T);
+    expect(m.look("a", "120", T)).toBe(false);
+  });
+  it("isUnread compares against the effective marker, exactly", () => {
+    const m = createMarkers({ baseline: "100", read: { big: "9007199254740992" } });
+    expect(m.isUnread("x", "101")).toBe(true);
+    expect(m.isUnread("x", "100")).toBe(false);
+    expect(m.isUnread("big", "9007199254740993")).toBe(true);
+    expect(m.isUnread("big", "9007199254740992")).toBe(false);
+  });
+  it("markAll raises the baseline, empties read, and returns what it replaced", () => {
+    const m = createMarkers({ baseline: "100", read: { a: "150", b: "160" } });
+    const prev = m.markAll(T);
+    expect(prev).toEqual({ baseline: "100", read: { a: "150", b: "160" } });
+    expect(m.state()).toEqual({ baseline: snow(T), read: {} });
+    m.restore(prev);
+    expect(m.effective("a")).toBe("150");
+    expect(m.effective("b")).toBe("160");
+    expect(m.state().baseline).toBe("100");
+  });
+  it("markAll's returned state is a copy, not the live one", () => {
+    const m = createMarkers({ baseline: "100", read: { a: "150" } });
+    const prev = m.markAll(T);
+    m.look("b", "1", T + 1000);
+    expect(prev.read).toEqual({ a: "150" });
+  });
+  it("request drops read entries at or below the baseline", () => {
+    const m = createMarkers({ baseline: "100", read: { a: "150", b: "100", c: "50" } });
+    expect(m.request()).toEqual({ baseline: "100", read: { a: "150" } });
+  });
+  it("request can be limited to one hunt's chats", () => {
+    const m = createMarkers({ baseline: "100", read: { a: "150", b: "160", c: "170" } });
+    expect(m.request(["a", "c", "zz"])).toEqual({ baseline: "100", read: { a: "150", c: "170" } });
+  });
+  it("stored keeps every marker above the baseline, past the request cap", () => {
+    const read = { old: "100", below: "50" };
+    for (let i = 1; i <= MAX_READ + 2; i++) read["c" + i] = String(1000 + i);
+    const out = createMarkers({ baseline: "100", read }).stored();
+    expect(out.baseline).toBe("100");
+    expect(Object.keys(out.read).length).toBe(MAX_READ + 2);
+    expect(out.read.c1).toBe("1001");
+    expect(out.read.old).toBeUndefined();
+    expect(out.read.below).toBeUndefined();
+  });
+  it("request keeps only the newest markers past the server's cap", () => {
+    const read = {};
+    for (let i = 1; i <= MAX_READ + 2; i++) read["c" + i] = String(1000 + i);
+    const out = createMarkers({ baseline: "100", read }).request().read;
+    expect(Object.keys(out).length).toBe(MAX_READ);
+    expect(out.c1).toBeUndefined();
+    expect(out.c2).toBeUndefined();
+    expect(out["c" + (MAX_READ + 2)]).toBe(String(1000 + MAX_READ + 2));
+  });
+});
+
+describe("clockSkew", () => {
+  it("is the server's lead over the middle of the round trip", () => {
+    expect(clockSkew(10500, 10000, 10200)).toBe(400);
+    expect(clockSkew(9000, 10000, 10200)).toBe(-1100);
+  });
+  it("is null when the response has no usable server time", () => {
+    expect(clockSkew(undefined, 1, 2)).toBeNull();
+    expect(clockSkew("10500", 1, 2)).toBeNull();
+    expect(clockSkew(NaN, 1, 2)).toBeNull();
+  });
+});

@@ -2,7 +2,7 @@
 # Build dist/puzzle-chat-<version>.zip (Chrome) from an explicit include list.
 # `package.sh firefox` instead builds dist/firefox/ (load it via about:debugging) and
 # dist/puzzle-chat-firefox-<version>.zip (upload to AMO), with a manifest derived from
-# manifest.json by scripts/firefoxManifest.js.
+# manifest.json by scripts/firefoxManifest.js, then lints it with web-ext.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -31,6 +31,9 @@ if [[ "$target" == firefox ]]; then
   done
   node scripts/write-firefox-manifest.js "$dir/manifest.json"
   cp ../LICENSE "$dir/LICENSE"
+  # Mozilla's linter (the checks AMO runs on upload); --self-hosted because the manifest
+  # carries update_url. A lint error stops the build before the zip is written.
+  npx --no-install web-ext lint --self-hosted --source-dir "$dir"
   rm -f "$out"
   (cd "$dir" && zip -X -q -r "$OLDPWD/$out" .)
   echo "$dir"

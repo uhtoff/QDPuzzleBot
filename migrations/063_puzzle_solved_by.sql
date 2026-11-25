@@ -1,0 +1,19 @@
+-- 063_puzzle_solved_by.sql
+-- Who solved a puzzle, for the chat extension's "Solved: X (Name)" row.
+--   puzzles.solved_by   the solver's display name at the solve (Discord display
+--                       name for !solve, the dashboard name for a web solve), or
+--                       NULL: unsolved, or solved before this column existed.
+--                       Cleared on unsolve.
+--
+-- PRE-FLIGHT: run in EVERY environment before pushing (a defaulted column does
+-- not prove itself by applying):
+--   SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()
+--     AND TABLE_NAME='puzzles' AND COLUMN_NAME='solved_by';
+-- must return 0.
+--
+-- POST-CHECK:
+--   SELECT COUNT(*) FROM puzzles WHERE solved_by IS NOT NULL;   -> 0
+--   SHOW COLUMNS FROM puzzles LIKE 'solved_by';                  -> Null YES, Default NULL
+--
+-- Plain ADD COLUMN (not MariaDB's IF NOT EXISTS, which CI's MySQL 8 rejects).
+ALTER TABLE `puzzles` ADD COLUMN `solved_by` VARCHAR(255) NULL DEFAULT NULL;

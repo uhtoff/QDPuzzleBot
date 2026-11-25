@@ -26,3 +26,21 @@ async def test_get_hunt_by_channel_id_queries_join():
         hunt = await data.get_hunt_by_channel_id(100)
     assert hunt["id"] == 7
     assert "JOIN puzzles" in f.call_args.args[0]
+    f.assert_called_once()                       # a puzzle hit needs no fallback
+
+
+async def test_get_hunt_by_channel_id_falls_back_to_hunt_general_channel():
+    """Not a puzzle channel: the hunt's own general channel still resolves, so
+    the extension's dashboard view can read and post there."""
+    from bot.web import data
+    with patch("bot.web.data.fetch_one", side_effect=[None, {"id": 8}]) as f:
+        hunt = await data.get_hunt_by_channel_id(300)
+    assert hunt == {"id": 8}
+    sql, params = f.call_args.args
+    assert "FROM hunts WHERE channel_id = %s" in sql and params == (300,)
+
+
+async def test_get_hunt_by_channel_id_none_for_unknown_channel():
+    from bot.web import data
+    with patch("bot.web.data.fetch_one", side_effect=[None, None]):
+        assert await data.get_hunt_by_channel_id(999) is None

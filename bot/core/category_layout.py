@@ -252,6 +252,24 @@ async def _pick_or_allocate(guild, tag_group, dao, rows, role):
     return await _allocate(guild, tag_group, dao, role_rows, role)
 
 
+def peek_unsolved_category(guild, tag_group, dao):
+    """The category pick_unsolved_category would return WITHOUT changing the
+    layout, or None when a pick would have to split the group or allocate an
+    overflow category (or the group has no category at all). Read-only: for
+    checks that must run before a create commits to anything."""
+    rows = dao.get_for_group(tag_group.id)
+    if not rows:
+        primary = _home_category(guild, tag_group)
+        if primary is not None and puzzle_count(primary) + 1 <= CATEGORY_SOFT_LIMIT:
+            return primary
+        return None
+    for r in sorted((r for r in rows if r.role == ROLE_UNSOLVED), key=lambda r: r.seq):
+        cat = _category_by_id(guild, r.category_id)
+        if cat is not None and puzzle_count(cat) < CATEGORY_SOFT_LIMIT:
+            return cat
+    return None
+
+
 async def pick_unsolved_category(guild, tag_group, dao):
     """Category a new puzzle should be created in. Splits the group first if a
     single category would cross the soft limit."""

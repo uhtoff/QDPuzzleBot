@@ -12,6 +12,7 @@ import datetime
 import functools
 import inspect
 import logging
+import re
 from typing import AbstractSet, Any, Callable
 
 import discord
@@ -26,22 +27,26 @@ from bot.store.rollup_data import RollupData
 from bot.store.tag_group_data import TagGroupData
 from bot.store.hunt_data import HuntData
 from bot.core.locks import rollup_lock, puzzle_lock
-from bot.core.errors import SheetRefreshError
+from bot.core.errors import ChannelNameClash, SheetRefreshError
 from bot.core.sheet_tables import (
     EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME, contribution_table_name, select_table,
 )
 from bot.utils import config, urls
 from bot.core.discord_channels import (
-    clean_channel_name, clean_category_name, get_or_create_channel, solve_divider_position,
-    MAX_CHANNELS_PER_GUILD, MAX_CATEGORIES,
+    clean_channel_name, clean_category_name, free_suffixed_name, get_or_create_channel,
+    solve_divider_position, text_channel_named, MAX_CHANNELS_PER_GUILD, MAX_CATEGORIES,
     SOLVE_CATEGORY, SOLVE_DIVIDER,
 )
 from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
 from bot.core.sheet_location import Link, puzzle_location
-from bot.core.target_glyph import marked_name
+from bot.core.target_glyph import GLYPHS, PRIMARY_MARKER, marked_name
 from bot.core.target_extract import select_extract_puzzles
 
 logger = logging.getLogger(__name__)
+
+# How long a channel rename may hold its caller before it is handed to the
+# background (see PuzzleService.safe_rename).
+RENAME_WAIT_SECONDS = 5
 
 
 # Re-entrancy depth for board-push dedupe. A contextvar (not an instance attr) so
@@ -274,6 +279,34 @@ def feeds_targets(puzzle) -> list[PuzzleData]:
     return _feeds_targets_from(fed, puzzle.parent_puzzle_id, puzzle.id)
 
 
+_GLYPH_CHARS = frozenset("".join(GLYPHS.values()) + PRIMARY_MARKER)
+_CLASH_SUFFIX = re.compile(r"-(\d+)$")
+
+
+def _kept_clash_suffix(stored, clean):
+    """The ``-N`` clash suffix on *stored* (a puzzle's current channel name) when
+    it is exactly [glyph prefix] + *clean* + ``-N``; else "". Clean names that
+    end in digits ("level-1") are not mistaken for a suffix: the part before
+    the ``-N`` must still be the clean name."""
+    if not stored or not clean:
+        return ""
+    m = _CLASH_SUFFIX.search(stored)
+    if m is None:
+        return ""
+    head = stored[:m.start()]
+    if head == clean:
+        return m.group(0)
+    if head.endswith("-" + clean):
+        prefix = head[:-len(clean) - 1]
+        if prefix and all(ch in _GLYPH_CHARS for ch in prefix):
+            return m.group(0)
+    return ""
+
+
+def _with_suffix(name, suffix):
+    return name[:100 - len(suffix)] + suffix if suffix else name
+
+
 class PuzzleService:
     def __init__(self, bot, notifier=None):
         self.bot = bot
@@ -287,33 +320,47 @@ class PuzzleService:
         self._rename_tasks: set = set()
 
     async def safe_rename(self, channel, name, ctx=None):
-        """Rename a Discord channel, coalescing rapid renames under rate limit.
+        """Rename a Discord channel without waiting out its rename limit.
+
+        Discord allows two renames per channel per ten minutes. discord.py does
+        not raise when that bucket is spent: it sleeps until it resets, which
+        held a dashboard rename (and the puzzle's lock) for nearly ten minutes.
+        So the edit gets RENAME_WAIT_SECONDS; past that it is cancelled (safe:
+        it is waiting, not sending) and finished in the background with the
+        latest requested name, coalescing any renames asked for meanwhile.
+        Returns True when the name is applied now, False when it will follow.
 
         Moved from Puzzles cog (Phase 6). `ctx` may be None (web callers); no user-
         facing message is sent in that case."""
-        try:
-            await channel.edit(name=name)
-            return True
-        except discord.RateLimited as exc:
-            already_pending = channel.id in self._pending_renames
-            self._pending_renames[channel.id] = name
-            if ctx is not None:
-                await ctx.send(
-                    f"⏳ Discord is rate-limiting renames on this channel; "
-                    f"I'll apply the new name in about {round(exc.retry_after)}s."
-                )
-            if not already_pending:
-                task = asyncio.create_task(self._deferred_rename(channel, exc.retry_after))
-                self._rename_tasks.add(task)
-                task.add_done_callback(self._rename_tasks.discard)
-            return False
+        delay = 0
+        if channel.id not in self._pending_renames:
+            try:
+                await asyncio.wait_for(channel.edit(name=name), timeout=RENAME_WAIT_SECONDS)
+                return True
+            except asyncio.TimeoutError:
+                pass
+            except discord.RateLimited as exc:   # only with max_ratelimit_timeout set
+                delay = exc.retry_after
+        already_pending = channel.id in self._pending_renames
+        self._pending_renames[channel.id] = name
+        if ctx is not None:
+            await ctx.send(
+                "⏳ Discord is rate-limiting renames on this channel; I'll apply the "
+                "new name as soon as it allows (this can take up to ten minutes)."
+            )
+        if not already_pending:
+            task = asyncio.create_task(self._deferred_rename(channel, delay))
+            self._rename_tasks.add(task)
+            task.add_done_callback(self._rename_tasks.discard)
+        return False
 
     async def _deferred_rename(self, channel, delay):
         """Wait out the rename bucket, then apply the latest requested name,
         coalescing any further renames queued while we were waiting."""
         attempts = 0
         while attempts < 6:
-            await asyncio.sleep(delay + 1)
+            if delay:
+                await asyncio.sleep(delay + 1)
             name = self._pending_renames.get(channel.id)
             if name is None:
                 return
@@ -401,14 +448,17 @@ class PuzzleService:
 
     def desired_channel_name(self, guild, hunt, puzzle, group=None):
         """Canonical Discord channel name: ⭐ (if this is a category's OWN target) +
-        kind glyph + clean name; bare clean name for a feeder."""
+        kind glyph + clean name; bare clean name for a feeder. A ``-N`` clash
+        suffix already on the puzzle's stored channel_name is kept (see
+        _kept_clash_suffix), so glyph refreshes and reconcile never strip it."""
         kind = self._target_kind(hunt, puzzle, group=group)
         clean = clean_channel_name(puzzle.name)
+        suffix = _kept_clash_suffix(getattr(puzzle, "channel_name", None), clean)
         if kind is None:
-            return clean
+            return _with_suffix(clean, suffix)
         owning = group if group is not None else TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
         is_primary = owning is not None and category_layout.primary_category(guild, owning) is not None
-        return marked_name(kind, clean, is_primary)
+        return _with_suffix(marked_name(kind, clean, is_primary), suffix)
 
     def _desired_target_channel_name(self, guild, hunt, group):
         """Glyphed channel name a group's target puzzle should carry (no puzzle
@@ -475,14 +525,18 @@ class PuzzleService:
         # this service already calls it in three other places.
         return category_layout._home_category(guild, home_group), home_group
 
-    async def _reconcile_channel(self, guild, hunt, puzzle, report, *, apply, hunt_category_ids=()):
+    async def _reconcile_channel(self, guild, hunt, puzzle, report, *, apply, hunt_category_ids=(),
+                                 reserved_channel_ids=frozenset()):
         """Make the puzzle's Discord channel match the DB. Returns the list of
         actions taken/needed. Resolution order: keep+fix existing > relink named >
         create. Welcome is reposted ONLY when a brand-new channel is created.
 
         ``hunt_category_ids`` scopes step 2's relink search to this hunt's own
         round/group categories, so a same-named channel belonging to a different
-        hunt (or a different puzzle) in the same guild can't be hijacked."""
+        hunt (or a different puzzle) in the same guild can't be hijacked.
+        ``reserved_channel_ids`` (channels already in use: other puzzles', the
+        hunt's general channel, group chat channels) are never relinked, and a
+        recreate never lands on one of them by name — it takes a ``-N`` name."""
         # Mini-puzzles live as threads inside their minimeta's channel (see
         # create_mini) and are deliberately untagged. Reconcile has no
         # thread-creation path, so a mini here would be wrongly promoted to a
@@ -512,7 +566,9 @@ class PuzzleService:
         # own categories: relink + move. Scoped to hunt_category_ids so a
         # same-named channel in another hunt/round can't be adopted.
         existing = discord.utils.get(
-            (c for c in guild.channels if getattr(c.category, "id", None) in hunt_category_ids),
+            (c for c in guild.channels
+             if getattr(c.category, "id", None) in hunt_category_ids
+             and c.id not in reserved_channel_ids),
             name=want_name,
         )
         if existing is not None:
@@ -528,6 +584,10 @@ class PuzzleService:
             return actions
 
         # 3. Nothing found: create + welcome.
+        if text_channel_named(category, want_name) is not None:
+            # The name is taken by a channel in use (step 2 skipped it): a fresh
+            # channel must not be resolved to it by name — take a -N name.
+            want_name = free_suffixed_name(category, want_name)
         actions.append(ReconcileAction("channel_create", puzzle.name, "no channel found"))
         if apply:
             text_channel, created = await get_or_create_channel(
@@ -802,6 +862,7 @@ class PuzzleService:
         puzzles = PuzzleJsonDb.get_all_from_hunt(hunt.id)
         rounds = TagGroupJsonDb.get_all(hunt.id)
         hunt_category_ids = self._hunt_category_ids(hunt, rounds)
+        reserved_channel_ids = self._reserved_channel_ids(guild, hunt, puzzles, rounds)
 
         files = getattr(hunt, "sheet_mode", "tabs") == "files"
         files_check = None
@@ -823,7 +884,8 @@ class PuzzleService:
             try:
                 for action in await self._reconcile_channel(
                         guild, hunt, puzzle, report, apply=apply,
-                        hunt_category_ids=hunt_category_ids):
+                        hunt_category_ids=hunt_category_ids,
+                        reserved_channel_ids=reserved_channel_ids):
                     report.actions.append(action)
                 if files:
                     if files_check is not None:
@@ -877,9 +939,29 @@ class PuzzleService:
                                    RuntimeError("Feeds line write failed"))
 
         self._collect_orphan_channels(
-            guild, hunt, puzzles, report, hunt_category_ids)
+            guild, hunt, puzzles, report, hunt_category_ids, rounds)
         await self._collect_orphan_tabs(hunt, puzzles, report)
         return report
+
+    @staticmethod
+    def _reserved_channel_ids(guild, hunt, puzzles, rounds):
+        """Channels reconcile must never hand to a puzzle: every puzzle's own
+        channel, the hunt's general channel, and each group's chat channel (a
+        metaless group's channel in its category, or a channel-home group's
+        channel)."""
+        ids = {p.channel_id for p in puzzles if p.channel_id}
+        if getattr(hunt, "channel_id", None):
+            ids.add(hunt.channel_id)
+        for group in rounds:
+            # Only a metaless group has a chat channel (group_chat_channel
+            # returns None for a targeted one anyway).
+            if guild is not None and getattr(group, "has_target", True) is False:
+                chat = category_layout.group_chat_channel(guild, group)
+                if chat is not None:
+                    ids.add(chat.id)
+            if getattr(group, "category_id", None):
+                ids.add(group.category_id)   # a channel-home group's id IS its channel
+        return frozenset(ids)
 
     @staticmethod
     def _hunt_category_ids(hunt, rounds):
@@ -898,13 +980,13 @@ class PuzzleService:
         ids.update(row.category_id for row in HuntCategoryDb.get_for_group(hunt.id))
         return frozenset(cid for cid in ids if cid)
 
-    def _collect_orphan_channels(self, guild, hunt, puzzles, report, category_ids):
-        valid_ids = {p.channel_id for p in puzzles if p.channel_id}
-        # Widening the scan to the hunt's general category (M6) brings the hunt's
-        # OWN channel into range. It is not a puzzle channel, and orphans are what
-        # `!reconcile apply-orphans` deletes.
-        if getattr(hunt, "channel_id", None):
-            valid_ids.add(hunt.channel_id)
+    def _collect_orphan_channels(self, guild, hunt, puzzles, report, category_ids, rounds):
+        # Orphans are what `!reconcile apply-orphans` deletes, so anything in
+        # use is exempt: the SAME set relinking refuses to take (puzzles', the
+        # hunt's general channel, group chat channels). Recomputed here, not
+        # reused from the start of the run: an apply has just linked or created
+        # channels onto `puzzles`.
+        valid_ids = self._reserved_channel_ids(guild, hunt, puzzles, rounds)
         for category in guild.categories:
             if category.id not in category_ids:
                 continue
@@ -1566,6 +1648,7 @@ class PuzzleService:
 
         puzzle = await self.create_puzzle(
             guild, hunt, tag_group, tag_group.name, is_meta=True, notifier=self.notifier,
+            on_channel_clash="adopt",
         )
 
         adopted = False
@@ -1683,7 +1766,7 @@ class PuzzleService:
             logger.exception("Failed to announce %s answer change for puzzle %s", kind, puzzle.id)
 
     @pushes_board()
-    async def solve(self, guild, hunt, puzzle, solution):
+    async def solve(self, guild, hunt, puzzle, solution, *, solved_by=None):
         """Mark a puzzle solved: set status/solution/solve_time, refresh metas,
         stamp the round solve_time if this is the round's meta, archive the sheet,
         and persist. RAISES on Sheets failure; edges decide tolerance and
@@ -1706,6 +1789,7 @@ class PuzzleService:
             puzzle.solution = solution
         puzzle.solved = True
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
+        puzzle.solved_by = solved_by
         PuzzleJsonDb.commit(puzzle)
         if not was_solved:
             await self._announce_to_fed(guild, puzzle, "solved", old_solution, puzzle.solution)
@@ -1807,6 +1891,7 @@ class PuzzleService:
         puzzle.solution = ""
         puzzle.solved = False
         puzzle.solve_time = None
+        puzzle.solved_by = None
 
         failed_puzzle_ids = []
         gsheet_cog = self._gsheet_cog(hunt)
@@ -2889,15 +2974,37 @@ class PuzzleService:
         return destination
 
     @pushes_board()
-    async def rename_puzzle(self, guild, hunt, puzzle, name):
+    async def rename_puzzle(self, guild, hunt, puzzle, name, on_channel_clash="suffix"):
         """Rename a puzzle: set name/channel_name, commit, refresh metas.
 
         Caller must check for duplicate names before calling. The Discord
         channel rename is guarded on `guild is not None` so that web calls
         (and tests with _no_guild) skip it.
+
+        *on_channel_clash*: if another channel in this puzzle's category already
+        has the new channel name, "ask" raises ChannelNameClash before anything
+        changes; "suffix" takes the next free ``-N`` name (see create_puzzle).
         """
+        old_name, old_channel_name = puzzle.name, puzzle.channel_name
         puzzle.name = name
-        puzzle.channel_name = self.desired_channel_name(guild, hunt, puzzle)
+        if clean_channel_name(old_name) != clean_channel_name(name):
+            # A -N on the stored channel name belongs to the OLD name (a clash
+            # suffix, or just "Level 1"); it says nothing about the new one.
+            # Without this, "Level 1" -> "Level" would read #level-1 as
+            # "level" + a kept clash suffix and never rename the channel.
+            puzzle.channel_name = None
+        want = self.desired_channel_name(guild, hunt, puzzle)
+        channel = (guild.get_channel(puzzle.channel_id)
+                   if guild is not None and puzzle.channel_id else None)
+        category = getattr(channel, "category", None)
+        if category is not None and text_channel_named(
+                category, want, exclude_id=getattr(channel, "id", None)) is not None:
+            if on_channel_clash == "ask":
+                # nothing changed yet: leave it as it was
+                puzzle.name, puzzle.channel_name = old_name, old_channel_name
+                raise ChannelNameClash(want, free_suffixed_name(category, want))
+            want = free_suffixed_name(category, want)
+        puzzle.channel_name = want
 
         # Rename the Discord channel (skip when guild is None — web + test path).
         # Only edit when the normalised name actually changes: adding punctuation
@@ -2915,6 +3022,11 @@ class PuzzleService:
                 logger.exception("rename_puzzle: voice channel rename failed for %s", puzzle.id)
 
         PuzzleJsonDb.commit(puzzle)
+        # The Unassigned Feeders tab shows the name; it only reconciles when
+        # refreshed. Scheduled straight after the commit so a sheet failure below
+        # cannot skip it. Minis are never on the tab.
+        if puzzle.parent_puzzle_id is None:
+            asyncio.create_task(self.refresh_unassigned_safe(hunt))
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -2970,12 +3082,12 @@ class PuzzleService:
         """Return ordered list of mini-puzzle PuzzleData for a minimeta."""
         return PuzzleJsonDb.get_children(minimeta_id)
 
-    async def solve_mini_by_number(self, guild, hunt, minimeta_id, number, solution):
+    async def solve_mini_by_number(self, guild, hunt, minimeta_id, number, solution, *, solved_by=None):
         """Solve the Nth mini-puzzle (1-indexed) under the given minimeta puzzle id."""
         minis = self.get_minis(minimeta_id)
         if number < 1 or number > len(minis):
             raise ValueError(f"No mini #{number} — {len(minis)} mini(s) exist")
-        return await self.solve(guild, hunt, minis[number - 1], solution)
+        return await self.solve(guild, hunt, minis[number - 1], solution, solved_by=solved_by)
 
     async def unsolve_mini_by_number(self, guild, hunt, minimeta_id, number):
         """Unsolve the Nth mini-puzzle (1-indexed) under the given minimeta puzzle id."""
@@ -3252,15 +3364,54 @@ class PuzzleService:
         except Exception:
             logger.exception("orphan cleanup: failed to delete DB row for %s", puzzle)
 
+    def _raise_on_channel_clash(self, guild, hunt, round_data, name, is_meta, category):
+        """Raise ChannelNameClash if a new puzzle called *name* would share its
+        channel name with a text channel already in *category* (None: no check)."""
+        if category is None:
+            return
+        probe = PuzzleData(name=name, hunt_id=hunt.id)
+        probe.is_target = bool(is_meta)
+        if round_data is not None:
+            probe.tags.append(round_data.id)
+        want = self.desired_channel_name(
+            guild, hunt, probe, group=round_data if is_meta else None)
+        if text_channel_named(category, want) is not None:
+            raise ChannelNameClash(want, free_suffixed_name(category, want))
+
     @pushes_board()
-    async def create_puzzle(self, guild, hunt, round_data, name, is_meta=False, notifier=None):
+    async def create_puzzle(self, guild, hunt, round_data, name, is_meta=False, notifier=None,
+                            on_channel_clash="suffix"):
         """Create a new puzzle: DB row + Google sheet + Discord channel.
 
         Mirrors the old cog path but calls *discord_channels* module functions
         directly (no cog delegation) and fires notification via the injected
         notifier.  Raises the underlying exception on failure so edges can
         decide tolerance.
+
+        *on_channel_clash* — when the target category already has a text channel
+        with this puzzle's channel name (Discord allows duplicates; we don't,
+        because a puzzle must own its channel):
+          "ask"    raise ChannelNameClash before any sheet/DB work (interactive
+                   callers prompt, then retry with "suffix"). When the puzzle
+                   fits an existing category this is also before any layout
+                   change; only a create that must split/allocate first is
+                   checked after that (the new layout is needed to know
+                   which category it lands in);
+          "suffix" use the next free ``-N`` name;
+          "adopt"  reuse the existing channel by name, leaving the puzzle
+                   unlinked for the caller to link (_promote_group_to_target).
+        A clash that only appears after the "ask" check (a race) is suffixed.
         """
+        if on_channel_clash == "ask":
+            # Ask BEFORE the overflow relief and category pick below, which can
+            # extract a meta or allocate a category: a Cancel must not leave the
+            # layout changed for a puzzle that was never made.
+            self._raise_on_channel_clash(
+                guild, hunt, round_data, name, is_meta,
+                category_layout.peek_unsolved_category(
+                    guild, *((round_data, TagGroupCategoryDb) if round_data is not None
+                             else (hunt, HuntCategoryDb))))
+
         # Auto-extract a channel-home meta if this create would otherwise
         # overflow (Plan 4). Best-effort; a Case-A extraction flips
         # round_data.category_id so the picks below see a real category.
@@ -3305,6 +3456,12 @@ class PuzzleService:
             new_puzzle.url = f"{hunt_url_base}/{prefix}/{p_name}"
         if round_data is not None:
             new_puzzle.tags.append(round_data.id)
+
+        if on_channel_clash == "ask":
+            want = self.desired_channel_name(
+                guild, hunt, new_puzzle, group=round_data if is_meta else None)
+            if text_channel_named(category, want) is not None:
+                raise ChannelNameClash(want, free_suffixed_name(category, want))
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -3355,6 +3512,9 @@ class PuzzleService:
                 else (hunt, HuntCategoryDb))
             category = await category_layout.pick_unsolved_category(
                 guild, owner, owner_dao)
+            if on_channel_clash != "adopt" \
+                    and text_channel_named(category, channel_name) is not None:
+                channel_name = free_suffixed_name(category, channel_name)
             text_channel, created = await get_or_create_channel(
                 guild=guild, category=category, channel_name=channel_name,
                 channel_type="text",

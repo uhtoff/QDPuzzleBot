@@ -2,6 +2,12 @@
   "name": "puzzle-chat-extension",
   "private": true,
   "type": "module",
-  "scripts": { "test": "vitest run" },
-  "devDependencies": { "vitest": "^4.1.10" }
+  "scripts": {
+    "test": "vitest run",
+    "lint:firefox": "web-ext lint --self-hosted --source-dir dist/firefox"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10",
+    "web-ext": "^8.10.0"
+  }
 }

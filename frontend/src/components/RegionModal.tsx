@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Button,
   Divider,
@@ -20,6 +20,7 @@ import {
 } from "../api";
 import { useOcrReplaceConfirm } from "../hooks/useOcrReplaceConfirm";
 import { notifyError } from "../util";
+import { useChannelClashPrompt } from "./ChannelClashPrompt";
 import { puzzleOptions } from "../lib/boardPuzzles";
 import type { CanvasRegion, HuntDetail, RegionRole, RegionShape } from "../types";
 
@@ -67,6 +68,12 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
   const updateRegion = useUpdateRegion(uid);
   const deleteRegion = useDeleteRegion(uid);
   const createPuzzle = useCreatePuzzleFromRegion(uid);
+  const channelClash = useChannelClashPrompt();
+  // The region a freshly drawn shape was saved as, kept with that shape. The
+  // modal stays open on the pending shape when the puzzle create then fails or
+  // is cancelled (a taken name, a channel-name clash), so a second "Create and
+  // link" must reuse this region rather than save the same shape again.
+  const savedShape = useRef<{ shape: RegionShape; region: CanvasRegion } | null>(null);
   const ocrRegion = useOcrCanvasRegion();
   const ocrConfirm = useOcrReplaceConfirm(
     setNote,
@@ -147,6 +154,23 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
     }
   };
 
+  // Create the puzzle on an already-saved region. On a channel-name clash the
+  // Accept retry comes back here with the SAME region (it was saved by the
+  // first attempt); a Cancel-then-retry reuses it through savedShape. Either
+  // way a freshly drawn shape is never saved twice.
+  const linkPuzzle = async (regionId: number, acceptChannelSuffix: boolean) => {
+    try {
+      await createPuzzle.mutateAsync({
+        canvasId, regionId, name: newName.trim(),
+        roundId: roundId && roundId !== UNASSIGNED ? Number(roundId) : null, role,
+        acceptChannelSuffix,
+      });
+      onClose();
+    } catch (e) {
+      if (!channelClash.handle(e, () => void linkPuzzle(regionId, true))) notifyError(e);
+    }
+  };
+
   const createAndLink = async () => {
     if (!newName.trim()) {
       setNameError("A new puzzle needs a name.");
@@ -156,18 +180,17 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
       // Creating a puzzle needs a region to hang it on, so a freshly drawn shape
       // is saved first and then linked. That keeps one create path rather than a
       // second "create region and puzzle together" endpoint.
-      let target = region;
+      let target = region
+        ?? (pendingShape && savedShape.current?.shape === pendingShape
+          ? savedShape.current.region : null);
       if (!target && pendingShape) {
         target = await createRegion.mutateAsync({
           canvasId, shape: pendingShape, label, note: note || null,
         });
+        savedShape.current = { shape: pendingShape, region: target };
       }
       if (!target) return;
-      await createPuzzle.mutateAsync({
-        canvasId, regionId: target.id, name: newName.trim(),
-        roundId: roundId && roundId !== UNASSIGNED ? Number(roundId) : null, role,
-      });
-      onClose();
+      await linkPuzzle(target.id, false);
     } catch (e) {
       notifyError(e);
     }
@@ -273,7 +296,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
           <Group gap="xs">
             <Button variant="default" onClick={onClose}>Cancel</Button>
             {mode === "create" ? (
-              <Button onClick={createAndLink} loading={busy}>Create and link</Button>
+              <Button onClick={() => void createAndLink()} loading={busy}>Create and link</Button>
             ) : (
               <Button onClick={save} loading={busy}>Save</Button>
             )}
@@ -281,6 +304,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
         </Group>
       </Stack>
       {ocrConfirm.confirmModal}
+      {channelClash.modal}
     </Modal>
   );
 }

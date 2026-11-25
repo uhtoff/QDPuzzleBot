@@ -22,6 +22,8 @@ export class ApiError extends Error {
     message: string,
     readonly slug: string | undefined,
     readonly status: number,
+    /** The error body's other fields (e.g. channel/suggested on a channel_name_clash). */
+    readonly detail: Record<string, unknown> = {},
   ) {
     super(message);
     this.name = "ApiError";
@@ -46,7 +48,7 @@ async function apiSend<T>(path: string, method: string, body?: unknown): Promise
       detail?: string;
       message?: string;
     };
-    throw new ApiError(friendlyError(detail, res.status), detail.error, res.status);
+    throw new ApiError(friendlyError(detail, res.status), detail.error, res.status, detail);
   }
   return res.json() as Promise<T>;
 }
@@ -97,6 +99,8 @@ export function friendlyError(d: { error?: string; retry_after?: number; detail?
     }
     case "duplicate_name":
       return "A puzzle with that name already exists.";
+    case "channel_name_clash":
+      return "A channel with that name already exists in this category.";
     case "round_exists":
     case "category_exists":
       return "A meta/category with that name already exists.";
@@ -383,9 +387,11 @@ export function useConvertToMeta(uid: string) {
 export function useRenamePuzzle(uid: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ puzzleId, name }: { puzzleId: number; name: string }) =>
+    mutationFn: ({ puzzleId, name, acceptChannelSuffix }:
+                 { puzzleId: number; name: string; acceptChannelSuffix?: boolean }) =>
       apiSend<{ ok: boolean; sheet_warning?: string }>(
-        `/api/puzzles/${puzzleId}/rename`, "POST", { name },
+        `/api/puzzles/${puzzleId}/rename`, "POST",
+        acceptChannelSuffix ? { name, accept_channel_suffix: true } : { name },
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
@@ -559,10 +565,12 @@ export function useDeleteMini(uid: string) {
 export function useCreatePuzzle(uid: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ name, metaCode }: { name: string; metaCode: string }) =>
+    mutationFn: ({ name, metaCode, acceptChannelSuffix }:
+                 { name: string; metaCode: string; acceptChannelSuffix?: boolean }) =>
       apiSend<{ ok: boolean; puzzle_id: number }>(`/api/hunts/${uid}/puzzles`, "POST", {
         name,
         group_code: metaCode,
+        ...(acceptChannelSuffix ? { accept_channel_suffix: true } : {}),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
@@ -1310,15 +1318,17 @@ export function useDetachPuzzleImage(puzzleId: number) {
 export function useCreatePuzzleFromRegion(uid: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ canvasId, regionId, name, roundId, role }: {
+    mutationFn: ({ canvasId, regionId, name, roundId, role, acceptChannelSuffix }: {
       canvasId: number; regionId: number; name: string; roundId: number | null;
-      role: RegionRole;
+      role: RegionRole; acceptChannelSuffix?: boolean;
     }) =>
       apiSend<CanvasRegion>(
-        `/api/canvases/${canvasId}/regions/${regionId}/create-puzzle`, "POST",
-        // Omitting round_id (rather than sending null) is what the API reads as
-        // "no round" — an unattached, hunt-level puzzle.
-        roundId ? { name, round_id: roundId, role } : { name, role }),
+        `/api/canvases/${canvasId}/regions/${regionId}/create-puzzle`, "POST", {
+          // Omitting round_id (rather than sending null) is what the API reads as
+          // "no round" — an unattached, hunt-level puzzle.
+          ...(roundId ? { name, round_id: roundId, role } : { name, role }),
+          ...(acceptChannelSuffix ? { accept_channel_suffix: true } : {}),
+        }),
     onSuccess: () => {
       // A new puzzle with a channel and a sheet tab: the board is stale too.
       qc.invalidateQueries({ queryKey: ["canvases", uid] });

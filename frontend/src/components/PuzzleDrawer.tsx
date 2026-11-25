@@ -42,6 +42,7 @@ import {
 } from "../api";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
 import { ConfirmModal } from "./ConfirmModal";
+import { useChannelClashPrompt } from "./ChannelClashPrompt";
 import { PuzzleImages } from "./PuzzleImages";
 import { PuzzleVoiceControl } from "./PuzzleVoiceControl";
 import { puzzleVoiceCount, voiceCreateNotices, type LiveVoice } from "../lib/voice";
@@ -91,6 +92,7 @@ export function PuzzleDrawer({ puzzle, detail, voice, onClose }: Props) {
   const addSheet = useAddSheet(uid);
   const removeSheet = useRemoveSheet(uid);
   const rename = useRenamePuzzle(uid);
+  const channelClash = useChannelClashPrompt();
   const createVoice = useCreatePuzzleVoice(uid);
 
   // The Drawer is a single long-lived instance: opening a different puzzle
@@ -161,10 +163,16 @@ export function PuzzleDrawer({ puzzle, detail, voice, onClose }: Props) {
       setRenameEditing(false);
       return;
     }
-    rename.mutate({ puzzleId: puzzle.id, name: newName }, {
-      onSuccess: (data) => { showSheetWarning(data); setRenameEditing(false); },
-      onError: () => setRenameEditing(false),
-    });
+    const puzzleId = puzzle.id;
+    const send = (acceptChannelSuffix: boolean) =>
+      rename.mutate({ puzzleId, name: newName, acceptChannelSuffix }, {
+        onSuccess: (data) => { showSheetWarning(data); setRenameEditing(false); },
+        onError: (err) => {
+          setRenameEditing(false);
+          if (!channelClash.handle(err, () => send(true))) notifyError(err);
+        },
+      });
+    send(false);
   };
 
   return (
@@ -502,6 +510,7 @@ export function PuzzleDrawer({ puzzle, detail, voice, onClose }: Props) {
           </TypedConfirmModal>
         </Stack>
       )}
+      {channelClash.modal}
     </Drawer>
   );
 }
