@@ -81,7 +81,7 @@ Situations 2 and 4 are rare; they should be *modellable*, not optimised.
 
 - **`puzzle_answers`** — one row per answer: `id`, `puzzle_id` (FK, cascade delete), `answer`
   (upper-cased text, as today), `position` (display order, 1-based, stable), `no_meta` (bool,
-  default false), `created_by` (Discord user id, nullable), `created_at`.
+  default false), `created_by` (display name, nullable, as `solved_by`), `created_at`.
 - **`answer_placements`** — `answer_id` (FK, cascade), `tag_group_id` (FK, cascade), unique on
   the pair. Many placements per answer (one answer feeding two metas). Later phase adds
   `confirmed` (bool); everything in this phase is confirmed. *Builder's call whether to add the
@@ -280,7 +280,7 @@ Commands (user decisions, 2026-11-25):
 - Sheets quota: one service account for all teams; per-answer rows must not multiply API calls per
   solve — batch writes as today.
 - CI runs MySQL 8.0 and basedpyright on `bot/`; prod is MariaDB 10.11.
-- Check migration numbering against other worktrees before merging (latest on staging: 062).
+- Check migration numbering against other worktrees before merging (latest on staging: 063).
 - Native-Table reconcile keeps solver note columns inside the Table; row operations must span the
   full Table width.
 
