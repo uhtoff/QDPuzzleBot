@@ -56,6 +56,7 @@ import { huntVoiceCount, type LiveVoice } from "../lib/voice";
 import { useViewAs, applyViewAs } from "../context/ViewAsContext";
 import type { HuntDetail, Puzzle } from "../types";
 import { ChannelNamesContext } from "../components/DiscordMarkdown";
+import { ExtensionUpdateNotice } from "../components/ExtensionUpdateNotice";
 import { channelNamesFromBoard } from "../lib/discordLinks";
 import "./HuntBoard.css";
 
@@ -406,6 +407,8 @@ export default function HuntBoard() {
           {!data.hunt.archived && <CreateControls detail={data} uid={uid!} />}
         </Group>
       </Group>
+
+      <ExtensionUpdateNotice />
 
       <Box style={{ opacity: isPending ? 0.65 : 1, transition: "opacity 120ms ease" }}>
         {(visitedViews.has("board") || shown === "board") && (

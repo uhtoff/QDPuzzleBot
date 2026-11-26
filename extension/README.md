@@ -148,6 +148,19 @@ panel/dashboard transcript (Discord had not cached the avatar yet); later ones a
 3. Copy the store-assigned extension ID, add `chrome-extension://<that id>` to
    `web.extension_origins`, and restart the bot.
 
+## "Update available" notice
+
+The panel (1.2.1 and later) and the dashboard's hunt page tell people whose copy is older than
+the newest **released** version, once per release (dismissing hides it until the next one).
+Both read `frontend/public/extension/versions.json`: `latest` and a one-line `adds` per version.
+Copies up to 1.2.0 publish no version, so the dashboard takes them as 1.2.0.
+
+**Release step:** once a version is live in the Chrome Web Store (and, for Firefox, its signed
+`.xpi` and `firefox-updates.json` entry are on live), add its line to `versions.json` and set
+`latest` to it, then ship to live. Never before: people would be told to update to a version
+they cannot get. `test/versionsFile.test.js` checks the shape, and that `latest` is never
+ahead of `manifest.json`.
+
 ## Tests
 
 `npm install && npm test`.

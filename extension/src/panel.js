@@ -6,6 +6,7 @@ import { attachmentView } from "./lib/attachments.js";
 import { messagesPath, safeAvatarUrl } from "./lib/origin.js";
 import { paginate, rowBadge, rowMessage, rowText, rowTime } from "./lib/unreadList.js";
 import { apiGet, apiSend, getOrigin } from "./api.js";
+import { updateHowTo, updateNotice } from "./lib/updateStatus.js";
 
 const KIND_COMMAND = 3;
 const POLL_MS = 15000;
@@ -488,6 +489,41 @@ function connectPort() {
     }, 1000);
   });
 }
+
+// ---- "your copy is behind" (versions.json on the dashboard; once per release) ----
+
+const updateBox = document.getElementById("update");
+const DISMISSED_KEY = "dismissedUpdate";
+
+async function checkForUpdate() {
+  try {
+    const origin = await getOrigin();
+    const res = await fetch(origin + "/extension/versions.json", { cache: "no-store", credentials: "omit" });
+    const info = res.ok ? await res.json() : null;
+    const { [DISMISSED_KEY]: dismissed } = await chrome.storage.local.get(DISMISSED_KEY);
+    renderUpdate(updateNotice(chrome.runtime.getManifest().version, info, dismissed ?? null));
+  } catch {
+    renderUpdate(null); // no access to the dashboard yet, or offline: say nothing
+  }
+}
+
+function renderUpdate(notice) {
+  updateBox.replaceChildren();
+  updateBox.hidden = !notice;
+  if (!notice) return;
+  const text = el("span", "u-text");
+  const what = notice.adds.map((v) => v.version + ": " + v.adds).join(" · ");
+  text.append(el("b", null, "Update available: " + notice.latest), what ? " — " + what : "");
+  text.append(el("span", "u-how", updateHowTo(!!globalThis.browser?.runtime)));
+  const close = button(null, "×", () => {
+    chrome.storage.local.set({ [DISMISSED_KEY]: notice.latest }).catch(() => {});
+    renderUpdate(null);
+  }, "Dismiss until the next release");
+  updateBox.append(text, close);
+}
+
+checkForUpdate();
+setInterval(checkForUpdate, 6 * 60 * 60 * 1000);
 
 chrome.windows.getCurrent().then((w) => {
   windowId = w.id;
