@@ -18,8 +18,9 @@
 --     -> note the number: these become expected 0 and read the tick after their next answer write.
 --
 -- POST-CHECK, both must return 0 (or every returned row explained by an empty middle
--- fragment such as 'A//B', or by a listed whole answer ending in '/', which TRIM in the
--- second query trims: Spacewalk - meta on live):
+-- fragment such as 'A//B', a dropped tick piece such as 'X/✅', or a listed whole
+-- answer ending in '/', which TRIM in the second query trims. Live, 2026-11-26: the
+-- second returned 2 -- Spacewalk - meta (2194) and Twinrova (4957, 'LEEVER HANGING/✅')):
 --   SELECT COUNT(*) FROM puzzles p WHERE p.solution <> '' AND p.solution <> '✅'
 --     AND NOT EXISTS (SELECT 1 FROM puzzle_answers a WHERE a.puzzle_id = p.id);
 --   SELECT COUNT(*) FROM puzzles p JOIN (SELECT puzzle_id,
