@@ -110,9 +110,18 @@ Situations 2 and 4 are rare; they should be *modellable*, not optimised.
     the rows the truth and the string a derived display only, never split (needs every direct
     writer of `puzzles.solution`, e.g. the `update_settings` hole, routed through the seam first).
   - **Existing data is ambiguous:** a stored `A/B` may be one answer or two, and nothing records
-    which. List them (`SELECT … WHERE solution LIKE '%/%'`; live had a maximum of 11 fragments on
-    2026-11-26), have someone mark each, and re-derive their rows in a follow-up migration. Migration
-    065's backfill split on `/` and is re-runnable only until stage 2 ships.
+    which. List them (`SELECT … WHERE solution LIKE '%/%'`), have someone mark each, and re-derive
+    their rows in a follow-up migration. Migration 065's backfill split on `/` and is re-runnable
+    only until stage 2 ships.
+  - **Live, 2026-11-26: 74 puzzles hold a `/`; 68 are genuine multiple answers** (most: 9, Dark
+    Link), so splitting on `/` is right for existing data. **6 are single answers containing
+    slashes:** puzzle ids 2194 (`(/◕ヮ◕)/`) and 5028–5032 (the five Ocarina "Barrier" puzzles,
+    backtick-quoted `/` and `\` strings) — re-derive those as one answer each. Quirks to keep:
+    trailing `/` (3166, 3165: empty piece dropped), a tick piece (4957 `LEEVER HANGING/✅`: tick
+    dropped), repeated answers (4894, 4887, 4898, 4901, and 3843's THIRTEEN twice: keep both), and
+    spaces around `/` (5062, 2171: trimmed). Because 68 of 74 are real multi-answers, prefer
+    "rows are the truth, string derived with `/`" over a ` / ` join, which would change how all 68
+    display to fix 6.
 - **The `feeds` tag stays** and keeps its current meaning for unsolved puzzles ("expected to feed
   this target"; drives the meta table's blank placeholder row) and drives auto-placement.
 - **Migration:** split each existing `puzzles.solution` on `/` into answer rows (skip empty
