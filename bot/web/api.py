@@ -172,6 +172,8 @@ async def hunt_detail(uid):
             "solved_sheet_url": spreadsheet_link(hunt["solved_sheet_id"]),
             "sheet_mode": hunt.get("sheet_mode") or "tabs",
             "drive_folder_url": drive_folder_link(hunt.get("drive_folder_id")),
+            # The general channel, so the dashboard can name Discord links into it.
+            "channel_id": str(hunt["channel_id"]) if hunt.get("channel_id") else None,
             "can_manage": can_manage,
             "can_administer": can_administer,
             "organiser_gate_active": gate_active,

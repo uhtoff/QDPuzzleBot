@@ -114,6 +114,47 @@ describe("createMarkers", () => {
   });
 });
 
+describe("provisional baseline", () => {
+  // The first baseline is taken from this machine's clock before the server's is
+  // known. A clock five minutes fast would otherwise put it five minutes ahead,
+  // and that window's messages and solves would count as already read.
+  const FIVE_MIN = 300000;
+  it("the first response's clock moves a new baseline, once", () => {
+    const m = createMarkers();
+    m.ensureBaseline(T);
+    expect(m.settleBaseline(-FIVE_MIN)).toBe(true); // server 5 min behind this machine
+    expect(m.state().baseline).toBe(snow(T - FIVE_MIN));
+    expect(m.settleBaseline(-FIVE_MIN)).toBe(false);
+    expect(m.state().baseline).toBe(snow(T - FIVE_MIN));
+  });
+  it("a slow clock moves it forward", () => {
+    const m = createMarkers();
+    m.ensureBaseline(T);
+    m.settleBaseline(FIVE_MIN);
+    expect(m.state().baseline).toBe(snow(T + FIVE_MIN));
+  });
+  it("survives a restart before the first response", () => {
+    const first = createMarkers();
+    first.ensureBaseline(T);
+    const m = createMarkers(first.stored());
+    expect(m.settleBaseline(-FIVE_MIN)).toBe(true);
+    expect(m.state().baseline).toBe(snow(T - FIVE_MIN));
+    expect(m.stored().provisional_ms).toBeUndefined(); // settled: nothing left to correct
+  });
+  it("a stored baseline that was never provisional is left alone", () => {
+    const m = createMarkers({ baseline: "100", read: {} });
+    expect(m.settleBaseline(-FIVE_MIN)).toBe(false);
+    expect(m.state().baseline).toBe("100");
+  });
+  it("a baseline moved since (Mark all read) is left alone", () => {
+    const m = createMarkers();
+    m.ensureBaseline(T);
+    m.markAll(T + 60000);
+    expect(m.settleBaseline(-FIVE_MIN)).toBe(false);
+    expect(m.state().baseline).toBe(snow(T + 60000));
+  });
+});
+
 describe("clockSkew", () => {
   it("is the server's lead over the middle of the round trip", () => {
     expect(clockSkew(10500, 10000, 10200)).toBe(400);

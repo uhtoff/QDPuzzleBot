@@ -85,3 +85,15 @@ async def test_hunt_detail_without_a_drive_folder_sends_none():
     for row in (_row(0), {**_row(0), "drive_folder_id": ""}):
         _, body = await _detail(row)
         assert body["hunt"]["drive_folder_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_hunt_detail_sends_the_general_channel_id_as_a_string():
+    """The dashboard labels Discord links into the hunt's general channel. A
+    Discord id outgrows a JS number, so it must arrive as a string."""
+    row = _row(0)
+    row.update(channel_id=1227020288445779978)
+    _, body = await _detail(row)
+    assert body["hunt"]["channel_id"] == "1227020288445779978"
+    _, body = await _detail({**_row(0), "channel_id": None})
+    assert body["hunt"]["channel_id"] is None

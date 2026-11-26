@@ -9,6 +9,7 @@ import {
   totals,
   listHuntName,
   applyMessage,
+  replayMessages,
   clearChannel,
   clearAll,
   badgeCount,
@@ -328,5 +329,33 @@ describe("listHuntName", () => {
   });
   it("is null when the server sent no name (an older dashboard)", () => {
     expect(listHuntName(undefined, "H1", undefined)).toBeNull();
+  });
+});
+
+describe("replayMessages", () => {
+  // A refetch replaces the cache with the server's counts. A message that arrived
+  // live after the server counted, but before its answer, must not be lost.
+  const server = () => [ch({ channel_id: "900", unread: 1, last: last("100") }), ch({ channel_id: "901", unread: 0, last: last("200") })];
+  const opts = { visible: [], markers: null, selfId: null };
+
+  it("adds a message the server had not counted yet", () => {
+    const out = replayMessages(server(), [msgEv("900", { id: "150" })], opts);
+    expect(out.find((c) => c.channel_id === "900").unread).toBe(2);
+    expect(out.find((c) => c.channel_id === "900").last.id).toBe("150");
+  });
+  it("skips a message the server already counted", () => {
+    const out = replayMessages(server(), [msgEv("900", { id: "100" }), msgEv("901", { id: "180" })], opts);
+    expect(out.find((c) => c.channel_id === "900").unread).toBe(1);
+    expect(out.find((c) => c.channel_id === "901").unread).toBe(0);
+  });
+  it("replays several, in order, across chats", () => {
+    const out = replayMessages(server(), [msgEv("900", { id: "150" }), msgEv("901", { id: "250" }), msgEv("900", { id: "160" })], opts);
+    expect(out.find((c) => c.channel_id === "900").unread).toBe(3);
+    expect(out.find((c) => c.channel_id === "900").last.id).toBe("160");
+    expect(out.find((c) => c.channel_id === "901").unread).toBe(1);
+  });
+  it("nothing buffered leaves the server's answer as it is", () => {
+    const s = server();
+    expect(replayMessages(s, [], opts)).toEqual(s);
   });
 });

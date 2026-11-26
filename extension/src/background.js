@@ -11,7 +11,7 @@ import { chatNotificationId, notificationId, notifyKind, notifyPrefs, parseNotif
 import { createNameCache, resolveName } from "./lib/channelNames.js";
 import { notificationText } from "./lib/discordText.js";
 import { clockSkew, createMarkers, snowflakeAt } from "./lib/readMarkers.js";
-import { applyMessage, badgeCount, badgeText, clearAll, clearChannel, isListed, listHuntName, listRows, nextGraceEnd, peekPuzzle, totals } from "./lib/unreadList.js";
+import { applyMessage, badgeCount, badgeText, clearAll, clearChannel, isListed, listHuntName, listRows, nextGraceEnd, peekPuzzle, replayMessages, totals } from "./lib/unreadList.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
 import { panelWindow } from "./lib/panelWindow.js";
 import { groupMove } from "./lib/groupMove.js";
@@ -49,6 +49,7 @@ const huntCache = new Map(); // huntUid -> channels[]
 const portHunt = new Map(); // port -> the (unarchived) hunt its panel last showed
 const huntTitles = new Map(); // huntUid -> the hunt's name, from its unread fetch
 const peeks = new Map(); // port -> {huntUid, channelId}: a chat shown instead of the tab's
+const tabAsks = new Map(); // port -> count of "show me my tab" requests, to spot a stale peek
 // Channel ids no cached hunt lists (a mini-puzzle's thread, a hunt nobody has open). Each
 // is asked about once; a channel that later joins a list is found there, not here.
 const misses = new Set();
@@ -61,6 +62,7 @@ const nowMs = () => Date.now() + clockSkewMs;
 let selfId = null;
 let graceTimer = null; // re-sends the lists when a solved chat's grace window ends
 const huntFetches = new Map(); // huntUid -> {again, promise}
+const fetchBuffers = new Map(); // huntUid -> live message events seen while its fetch is in flight
 const huntFailed = new Map(); // huntUid -> ms of its last failed fetch (e.g. an older dashboard)
 const HUNT_RETRY_MS = 60000;
 const UNDO_MS = 8000;
@@ -171,6 +173,15 @@ function wantedHunts() {
 }
 
 async function doFetchUnread(uid) {
+  fetchBuffers.set(uid, []);
+  try {
+    return await fetchAndStoreUnread(uid);
+  } finally {
+    fetchBuffers.delete(uid);
+  }
+}
+
+async function fetchAndStoreUnread(uid) {
   const version = markersVersion;
   const origin = markersOrigin;
   const known = huntCache.get(uid);
@@ -188,13 +199,20 @@ async function doFetchUnread(uid) {
   if (typeof res.self_id === "string") selfId = res.self_id;
   if (typeof res.hunt_name === "string") huntTitles.set(uid, res.hunt_name);
   if (skew !== null) clockSkewMs = skew;
+  // A first-run baseline came from this machine's clock: move it to the server's,
+  // then ask again, as this answer was judged against the uncorrected one.
+  if (skew !== null && markers.settleBaseline(skew)) {
+    markersVersion++;
+    await saveMarkersNow();
+    return "stale";
+  }
+  const visible = await visibleChannels();
+  // No await from here to the set: messages arriving meanwhile land in the buffer.
   const before = new Map((huntCache.get(uid) ?? []).map((c) => [c.channel_id, c]));
   const now = snowflakeAt(nowMs());
   // The server sends no solve time: a solve sorts from when it was first seen.
-  huntCache.set(
-    uid,
-    res.channels.map((c) => (c.newly_solved ? { ...c, solved_seq: before.get(c.channel_id)?.solved_seq ?? now } : c)),
-  );
+  const fresh = res.channels.map((c) => (c.newly_solved ? { ...c, solved_seq: before.get(c.channel_id)?.solved_seq ?? now } : c));
+  huntCache.set(uid, replayMessages(fresh, fetchBuffers.get(uid) ?? [], { visible, markers, selfId }));
   for (const c of res.channels) misses.delete(c.channel_id);
   return "done";
 }
@@ -293,6 +311,13 @@ const findChannel = (huntUid, channelId) => huntCache.get(huntUid)?.find((c) => 
 async function peekChat(port, huntUid, channelId) {
   await ready;
   const windowId = ports.get(port);
+  // A restarted background has no list yet (a reconnecting panel re-sends its peek
+  // straight away): load it before deciding the chat is gone.
+  if (channelId && huntUid && !huntCache.has(huntUid)) {
+    const asked = tabAsks.get(port);
+    await fetchUnread(huntUid);
+    if (tabAsks.get(port) !== asked) return; // a tab switch meanwhile ends the peek
+  }
   const ch = channelId ? findChannel(huntUid, channelId) : null;
   const view = await portView(port);
   if (!ch || view.tabEntry?.channel_id === ch.channel_id) {
@@ -422,6 +447,7 @@ async function handleMessage(ev) {
   const channelId = ev.channel_id == null ? null : String(ev.channel_id);
   if (!channelId) return;
   const visible = await visibleChannels();
+  for (const buf of fetchBuffers.values()) buf.push(ev); // replayed over a refetch's answer
   let known = false;
   for (const [uid, chans] of huntCache) {
     const r = applyMessage(chans, ev, { visible, markers, selfId });
@@ -787,6 +813,7 @@ chrome.runtime.onConnect.addListener((port) => {
     ports.delete(port);
     portHunt.delete(port);
     peeks.delete(port);
+    tabAsks.delete(port);
     reconcileUnread();
   });
   safePost(port, { type: "socket", connected: socketUp });
@@ -795,6 +822,7 @@ chrome.runtime.onConnect.addListener((port) => {
     ports.set(port, msg.windowId);
     if (msg.type === "get") {
       peeks.delete(port); // "show me my tab"
+      tabAsks.set(port, (tabAsks.get(port) ?? 0) + 1);
       const [tab] = await chrome.tabs.query({ active: true, windowId: msg.windowId });
       if (tab) await refreshTab(tab, port);
       else reconcileUnread();

@@ -31,9 +31,13 @@ export function clockSkew(serverMs, sentMs, receivedMs) {
   return Math.round(serverMs - (sentMs + receivedMs) / 2);
 }
 
-// `initial` is a stored {baseline, read}; anything malformed in it is dropped.
+// `initial` is a stored {baseline, read, provisional_ms?}; anything malformed in it
+// is dropped.
 export function createMarkers(initial) {
   let baseline = isId(initial?.baseline) ? initial.baseline : null;
+  // The local moment a first-run baseline was taken at, until the server's clock
+  // corrects it (settleBaseline). Null once settled, or for a baseline from before.
+  let provisionalMs = baseline && Number.isFinite(initial?.provisional_ms) ? initial.provisional_ms : null;
   let read = {};
   for (const [cid, id] of Object.entries(initial?.read ?? {})) if (isId(id)) read[cid] = id;
 
@@ -47,6 +51,20 @@ export function createMarkers(initial) {
     ensureBaseline(nowMs) {
       if (baseline) return false;
       baseline = snowflakeAt(nowMs);
+      provisionalMs = nowMs;
+      return true;
+    },
+    // The first response's clock skew: move a first-run baseline taken from this
+    // machine's clock to the server's. Once; true when it moved. A baseline moved
+    // since (Mark all read) is left as it is.
+    settleBaseline(skewMs) {
+      if (provisionalMs === null) return false;
+      const at = provisionalMs;
+      provisionalMs = null;
+      if (baseline !== snowflakeAt(at)) return false;
+      const next = snowflakeAt(at + skewMs);
+      if (next === baseline) return false;
+      baseline = next;
       return true;
     },
     // The chat was seen: read up to its newest message, or to now if that is later
@@ -74,7 +92,9 @@ export function createMarkers(initial) {
     // capped set would forget the older markers for good.
     stored() {
       const base = baseline ?? "0";
-      return { baseline: base, read: Object.fromEntries(Object.entries(read).filter(([, id]) => BigInt(id) > BigInt(base))) };
+      const out = { baseline: base, read: Object.fromEntries(Object.entries(read).filter(([, id]) => BigInt(id) > BigInt(base))) };
+      if (provisionalMs !== null) out.provisional_ms = provisionalMs;
+      return out;
     },
     // What the server needs: entries at or below the baseline add nothing. Limit to
     // `channelIds` (one hunt's chats) when known; past the server's cap keep the

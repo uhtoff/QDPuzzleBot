@@ -107,6 +107,15 @@ export function applyMessage(channels, ev, { visible = [], markers = null, selfI
   return { channels: out, known: true };
 }
 
+// Live messages that arrived while a refetch was in flight, applied over its
+// answer: the server may have counted before they landed. One it did count is
+// skipped (applyMessage ignores a message at or below the chat's last id).
+export function replayMessages(channels, events, opts) {
+  let out = channels;
+  for (const ev of events) out = applyMessage(out, ev, opts).channels;
+  return out;
+}
+
 const cleared = (ch) => ({ ...ch, unread: 0, newly_solved: false });
 export const clearChannel = (channels, channelId) => channels.map((ch) => (ch.channel_id === channelId ? cleared(ch) : ch));
 export const clearAll = (channels) => channels.map(cleared);

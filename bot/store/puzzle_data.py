@@ -5,6 +5,8 @@ import logging
 import json
 from typing import Dict, List, Optional
 
+from .answer_data import AnswerData
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,6 +67,15 @@ class PuzzleData:
     is_target: bool = False  # transient: derived at load from tag_group.target_puzzle_id (not a column)
     is_minimeta: bool = False  # transient: derived at load — True iff this puzzle has mini-children (not a column)
     parent_puzzle_id: Optional[int] = None
+    # puzzle_answers rows (migration 064). None means "not loaded" -- commit never
+    # touches the rows then. Hydrated by the store; not a puzzles column.
+    answers: Optional[List[AnswerData]] = None
+    # Transient: set only by the answer seam. commit() reconciles `answers` only
+    # when True, so an ordinary commit costs no extra queries and a stale object
+    # cannot delete answers.
+    answers_dirty: bool = False
+    expected_answers: int = 1
+    expected_answers_confirmed: bool = True
 
     @classmethod
     def import_dict(cls, puzzle_data: dict):

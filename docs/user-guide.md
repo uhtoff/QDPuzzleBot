@@ -201,7 +201,10 @@ the sheet.
 **On the dashboard:** open the puzzle's drawer (its notes icon) and set **Status**,
 **Priority** and **Type** there; in the **All puzzles** view you can also change them
 straight from the table. Notes are at the bottom of the drawer: type in *Add a note…* and
-click **Add note**. Clues go in the **Evidence** view. The board itself is the list of
+click **Add note**. Notes take Discord's formatting — `**bold**`, `*italic*`, `__underline__`,
+`~~strike~~`, `` `code` ``, code blocks, `>` quotes, `-` lists, `#` headings and links
+(`[text](https://…)` or a plain address) — and look the same on the dashboard as in Discord.
+Canvas region notes and clue notes take it too. Clues go in the **Evidence** view. The board itself is the list of
 puzzles, with their status and answers.
 
 **In Discord,** from the puzzle's channel:

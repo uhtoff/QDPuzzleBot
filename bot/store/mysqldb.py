@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 from bot.core.activity_slots import slot_start
 from bot.core.constants import HEADER_STYLES
+from .answer_data import AnswerData
 from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
 from .tag_group_data import TagGroupData
 from .tag_group_category_data import TagGroupCategoryData
@@ -791,20 +792,20 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     # voice_channel_id: written only by set_voice_channel (a stale PuzzleData
     # saved whole must not clear it, or its voice channel is never cleaned up).
     SPECIAL_ATTR = ['tags', 'additional_sheets', 'tag_edges', 'is_target', 'is_minimeta',
-                    'voice_channel_id']
+                    'voice_channel_id', 'answers', 'answers_dirty']
 
     def construct_puzzle(self, row):
         return self.construct_puzzles([row])[0]
 
     def construct_puzzles(self, rows) -> List[PuzzleData]:
-        """Hydrate many rows in a fixed 4 queries, not 4 *per row* (T5).
+        """Hydrate many rows in a fixed 5 queries, not 5 *per row* (T5).
 
         The per-puzzle path ran get_tags/get_additional_sheets/get_is_target/
         get_is_minimeta for every row, so a 100-puzzle hunt cost ~400 sequential
         round-trips -- and these are synchronous calls on the gateway thread, so
         the event loop is blocked for all of them. The list paths below all come
-        through here; the four hydrators fan the whole batch into one IN (...)
-        query each.
+        through here; the five hydrators (tags, additional sheets, is_target,
+        is_minimeta, answers) fan the whole batch into one IN (...) query each.
         """
         puzzles = [PuzzleData.import_dict(row) for row in rows]
         if not puzzles:
@@ -813,6 +814,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         self._hydrate_additional_sheets(puzzles)
         self._hydrate_is_target(puzzles)
         self._hydrate_is_minimeta(puzzles)
+        self._hydrate_answers(puzzles)
         return puzzles
 
     def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
@@ -1036,6 +1038,30 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         for pid, puzzle in by_id.items():
             puzzle.is_minimeta = pid in parents
 
+    def _hydrate_answers(self, puzzles):
+        """Load puzzle_answers onto every puzzle in one IN (...) query, ordered by
+        (position, id). A puzzle with no rows gets [] (never None: None means "not
+        loaded"), and answers_dirty stays False."""
+        by_id = {p.id: p for p in puzzles}
+        for puzzle in puzzles:
+            puzzle.answers = []
+        rows = self._fetch_all(
+            "SELECT id, puzzle_id, answer, position, no_meta, created_by, created_at"
+            " FROM puzzle_answers"
+            f" WHERE puzzle_id IN ({self._placeholders(len(by_id))})"
+            " ORDER BY position, id",
+            tuple(by_id),
+        )
+        for row in rows:
+            created_at = row['created_at']
+            if created_at is not None:
+                created_at = created_at.replace(tzinfo=datetime.timezone.utc)
+            by_id[row['puzzle_id']].answers.append(AnswerData(
+                id=row['id'], answer=row['answer'], position=row['position'],
+                no_meta=bool(row['no_meta']), created_by=row['created_by'],
+                created_at=created_at,
+            ))
+
     def tag_puzzle_with_edge(self, puzzle_id, tag_group_id, edge_type):
         """Add one membership edge (idempotent). With migration 020's
         UNIQUE (tag_group_id, puzzle_id, edge_type), each edge is its own row, so a
@@ -1120,6 +1146,14 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         the diff below is the ONLY thing that persists membership. Mutating
         puzzle.tags without puzzle.tag_edges (via add_edge/remove_edge) writes
         nothing.
+
+        puzzle.answers (puzzle_answers rows) is reconciled the same way -- delete the
+        rows not in the list, UPDATE rows with id > 0, INSERT rows with id 0 -- and
+        with the same caveat: non-atomic, self-correcting on the next dirty commit.
+        It runs ONLY when `answers is not None and answers_dirty`. Gated so that an
+        ordinary commit costs no extra queries, and so a stale or unloaded object
+        (answers None, or a snapshot that never set the flag) cannot delete answers
+        another writer added since it was read.
         """
         super(MySQLPuzzleJsonDb, self).commit(puzzle)
         cursor = self.mydb.dict_cursor()
@@ -1144,6 +1178,42 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                 "ON DUPLICATE KEY UPDATE edge_type = VALUES(edge_type)",
                 (gid, puzzle.id, edge),
             )
+        # Answers reconcile: gated on the dirty flag (see docstring); non-atomic,
+        # self-correcting on the next dirty commit, like the tags diff above.
+        if puzzle.answers is not None and puzzle.answers_dirty:
+            keep = [a.id for a in puzzle.answers if a.id > 0]
+            if keep:
+                cursor.execute(
+                    "DELETE FROM puzzle_answers WHERE puzzle_id = %s"
+                    f" AND id NOT IN ({self._placeholders(len(keep))})",
+                    (puzzle.id, *keep),
+                )
+            else:
+                cursor.execute(
+                    "DELETE FROM puzzle_answers WHERE puzzle_id = %s", (puzzle.id,))
+            now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+            for ans in puzzle.answers:
+                if ans.id > 0:
+                    cursor.execute(
+                        "UPDATE puzzle_answers SET answer = %s, position = %s, no_meta = %s"
+                        " WHERE id = %s AND puzzle_id = %s",
+                        (ans.answer, ans.position, ans.no_meta, ans.id, puzzle.id),
+                    )
+                else:
+                    created = ans.created_at
+                    if created is None:
+                        created = now
+                    elif created.tzinfo is not None:
+                        created = created.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+                    cursor.execute(
+                        "INSERT INTO puzzle_answers"
+                        " (puzzle_id, answer, position, no_meta, created_by, created_at)"
+                        " VALUES (%s, %s, %s, %s, %s, %s)",
+                        (puzzle.id, ans.answer, ans.position, ans.no_meta,
+                         ans.created_by, created),
+                    )
+                    ans.id = cursor.lastrowid
+            puzzle.answers_dirty = False
         cursor.close()
 
     def delete(self, puzzle_id, /):

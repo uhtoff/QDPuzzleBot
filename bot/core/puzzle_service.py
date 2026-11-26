@@ -20,6 +20,7 @@ import pytz
 from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
+from bot.core.answers import record_add, record_change, record_partial, record_solve, record_unsolve
 from bot.core import category_layout, hunt_archive, media_gc, mod_invite, voice
 from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS, DEFAULT_HEADER_STYLE, HEADER_COMPACT, HEADER_FULL, HEADER_STYLES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
@@ -354,6 +355,14 @@ class PuzzleService:
             task.add_done_callback(self._rename_tasks.discard)
         return False
 
+    def needs_rename(self, channel, name):
+        """Whether renaming `channel` to `name` would change anything: compared
+        with the name a queued rename is about to apply, else Discord's. A
+        rename back to the name Discord still shows must replace the queued
+        one, or the queued name lands later and disagrees with the database."""
+        pending = self._pending_renames.get(channel.id)
+        return (pending if pending is not None else getattr(channel, "name", None)) != name
+
     async def _deferred_rename(self, channel, delay):
         """Wait out the rename bucket, then apply the latest requested name,
         coalescing any further renames queued while we were waiting."""
@@ -475,7 +484,7 @@ class PuzzleService:
         if channel is None:
             return
         want = self.desired_channel_name(guild, hunt, puzzle)
-        if channel.name != want:
+        if self.needs_rename(channel, want):
             await self.safe_rename(channel, want)
 
     async def backfill_glyphs(self, guild, hunt):
@@ -492,7 +501,7 @@ class PuzzleService:
             if channel is None:
                 continue
             want = self.desired_channel_name(guild, hunt, puzzle, group=group)
-            if channel.name != want:
+            if self.needs_rename(channel, want):
                 try:
                     await self.safe_rename(channel, want)
                     renamed += 1
@@ -1643,7 +1652,7 @@ class PuzzleService:
             chat = category_layout.group_chat_channel(guild, tag_group)
             if chat is not None:
                 want = self._desired_target_channel_name(guild, hunt, tag_group)
-                if getattr(chat, "name", None) != want:
+                if self.needs_rename(chat, want):
                     await self.safe_rename(chat, want)
 
         puzzle = await self.create_puzzle(
@@ -1783,11 +1792,7 @@ class PuzzleService:
 
         was_solved, old_solution = puzzle.solved, puzzle.solution or ""
         puzzle.status = "solved"
-        if puzzle.solution and solution:
-            puzzle.solution += "/" + solution
-        elif solution:
-            puzzle.solution = solution
-        puzzle.solved = True
+        record_solve(puzzle, solution, by=solved_by)
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         puzzle.solved_by = solved_by
         PuzzleJsonDb.commit(puzzle)
@@ -1888,8 +1893,7 @@ class PuzzleService:
         """
         was_solved, old_solution = puzzle.solved, puzzle.solution or ""
         puzzle.status = UNSOLVED_STATUS
-        puzzle.solution = ""
-        puzzle.solved = False
+        record_unsolve(puzzle)
         puzzle.solve_time = None
         puzzle.solved_by = None
 
@@ -2470,10 +2474,7 @@ class PuzzleService:
         """
         solution = solution.strip().upper()
         puzzle.status = PARTIAL_STATUS
-        if puzzle.solution:
-            puzzle.solution += "/" + solution
-        else:
-            puzzle.solution = solution
+        record_partial(puzzle, solution)
         PuzzleJsonDb.commit(puzzle)
 
         tag_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
@@ -2487,11 +2488,11 @@ class PuzzleService:
         stamp solve_time, commit, refresh metas and push to Google Sheets."""
         solution = solution.strip().upper()
         old_solution = puzzle.solution or ""
-        puzzle.solution = solution
+        record_change(puzzle, solution)
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
-        if solution != old_solution:
-            await self._announce_to_fed(guild, puzzle, "changed", old_solution, solution)
+        if puzzle.solution != old_solution:
+            await self._announce_to_fed(guild, puzzle, "changed", old_solution, puzzle.solution)
 
         tag_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
         failed_group_ids = await self.refresh_targets(hunt, tag_groups)
@@ -2517,7 +2518,7 @@ class PuzzleService:
         stamp solve_time, commit, refresh metas and push to Google Sheets."""
         solution = solution.strip().upper()
         old_solution = puzzle.solution or ""
-        puzzle.solution += "/" + solution
+        record_add(puzzle, solution)
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
         await self._announce_to_fed(guild, puzzle, "added", old_solution, puzzle.solution)
@@ -3012,7 +3013,7 @@ class PuzzleService:
         # channel_name unchanged, and a no-op edit would waste a rename-bucket token.
         if guild is not None and puzzle.channel_id:
             channel = guild.get_channel(puzzle.channel_id)
-            if channel is not None and channel.name != puzzle.channel_name:
+            if channel is not None and self.needs_rename(channel, puzzle.channel_name):
                 await self.safe_rename(channel, puzzle.channel_name)
         if guild is not None:
             # The voice channel follows the puzzle's name (best-effort).

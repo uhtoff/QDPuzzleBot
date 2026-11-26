@@ -195,6 +195,8 @@ export interface HuntDetail {
     sheet_mode: "tabs" | "files";
     /** The hunt's Drive folder (files mode); null for a tab hunt. */
     drive_folder_url: string | null;
+    /** The hunt's general text channel, for naming Discord links in notes. */
+    channel_id: string | null;
     can_manage: boolean;
     can_administer: boolean;
     organiser_gate_active: boolean;

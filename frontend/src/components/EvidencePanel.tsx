@@ -34,6 +34,7 @@ import { useOcrReplaceConfirm } from "../hooks/useOcrReplaceConfirm";
 import { useLingering } from "../hooks/useLingering";
 import { ConfirmModal } from "./ConfirmModal";
 import { MarkupModal } from "./MarkupModal";
+import { DiscordMarkdown } from "./DiscordMarkdown";
 
 interface Props {
   uid: string;
@@ -607,17 +608,16 @@ const EvidenceRow = memo(function EvidenceRow({
             autoFocus
           />
         ) : (
-          <Text
-            size="sm"
-            // Line breaks in a note are content: HTML would collapse them.
-            style={editable
-              ? { cursor: "pointer", whiteSpace: "pre-wrap" }
-              : { whiteSpace: "pre-wrap" }}
-            onClick={editable ? startEdit : undefined}
+          <Box
+            style={editable ? { cursor: "pointer" } : undefined}
+            // A link in the note opens; anywhere else starts editing.
+            onClick={editable
+              ? (e) => { if (!(e.target as HTMLElement).closest("a")) startEdit(); }
+              : undefined}
             title={editable ? "Click to edit" : undefined}
           >
-            {item.note}
-          </Text>
+            <DiscordMarkdown text={item.note} />
+          </Box>
         )}
       </Table.Td>
       <Table.Td>

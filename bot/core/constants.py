@@ -60,3 +60,8 @@ HEADER_COMPACT = "compact"
 HEADER_STYLES = (HEADER_FULL, HEADER_COMPACT)
 DEFAULT_HEADER_STYLE = HEADER_COMPACT
 HEADER_STYLE_LABELS = {HEADER_FULL: "Full header", HEADER_COMPACT: "Compact header"}
+
+
+# Completion mark: a solved puzzle that has no answer text reads this. Never stored as
+# a puzzle_answers row (see bot/core/answers.py).
+COMPLETE_MARK = "✅"

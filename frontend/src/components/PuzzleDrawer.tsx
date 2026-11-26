@@ -4,6 +4,7 @@ import {
   ActionIcon,
   Anchor,
   Badge,
+  Box,
   Button,
   Divider,
   Drawer,
@@ -42,6 +43,7 @@ import {
 } from "../api";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
 import { ConfirmModal } from "./ConfirmModal";
+import { DiscordMarkdown } from "./DiscordMarkdown";
 import { useChannelClashPrompt } from "./ChannelClashPrompt";
 import { PuzzleImages } from "./PuzzleImages";
 import { PuzzleVoiceControl } from "./PuzzleVoiceControl";
@@ -426,9 +428,9 @@ export function PuzzleDrawer({ puzzle, detail, voice, onClose }: Props) {
               )}
               {puzzle.notes.map((note, i) => (
                 <Group key={`${i}-${note}`} justify="space-between" wrap="nowrap" align="flex-start">
-                  <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                    {note}
-                  </Text>
+                  <Box style={{ flex: 1, minWidth: 0 }}>
+                    <DiscordMarkdown text={note} />
+                  </Box>
                   <ActionIcon
                     variant="subtle"
                     color="red"

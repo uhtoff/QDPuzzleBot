@@ -55,6 +55,8 @@ import {
 import { huntVoiceCount, type LiveVoice } from "../lib/voice";
 import { useViewAs, applyViewAs } from "../context/ViewAsContext";
 import type { HuntDetail, Puzzle } from "../types";
+import { ChannelNamesContext } from "../components/DiscordMarkdown";
+import { channelNamesFromBoard } from "../lib/discordLinks";
 import "./HuntBoard.css";
 
 interface BoardByGroupViewProps {
@@ -298,6 +300,11 @@ export default function HuntBoard() {
   const openNotes = useCallback((p: Puzzle) => setNotesPuzzleId(p.id), []);
   const openChat = useCallback((p: Puzzle) => setChatPuzzleId(p.id), []);
   const openSolve = useCallback((p: Puzzle) => setSolvePuzzleId(p.id), []);
+  // Names Discord links in notes (puzzles, minis, the general channel).
+  const channelNames = useMemo(
+    () => (data ? channelNamesFromBoard(data.board, data.hunt) : null),
+    [data],
+  );
 
   if (isLoading) {
     return (
@@ -323,6 +330,7 @@ export default function HuntBoard() {
   const pct = data.summary.total ? Math.round((data.summary.solved / data.summary.total) * 100) : 0;
 
   return (
+    <ChannelNamesContext.Provider value={channelNames}>
     <Stack gap="md">
       <Group justify="space-between" align="flex-start">
         <div>
@@ -511,5 +519,6 @@ export default function HuntBoard() {
         />
       )}
     </Stack>
+    </ChannelNamesContext.Provider>
   );
 }
