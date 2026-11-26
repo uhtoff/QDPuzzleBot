@@ -6,6 +6,7 @@ entirely optional: unless ``web.enabled`` is true in config.json, ``start_web``
 does nothing and the bot behaves exactly as before.
 """
 import asyncio
+import html
 import logging
 import os
 import re
@@ -82,6 +83,58 @@ def _is_client_route(path: str) -> bool:
     return any(rx.fullmatch(path) for rx in _CLIENT_ROUTES)
 
 
+_NOINDEX_META = '<meta name="robots" content="noindex" />'
+_EMPTY_ROOT = '<div id="root"></div>'
+
+
+def _landing_intro() -> str:
+    """The landing page's explanation as plain HTML, for inside ``#root``.
+
+    The React login page says the same thing, but only once JavaScript has run.
+    A crawler or reviewer reading the raw HTML used to get an empty ``<div>`` on a
+    noindexed page that leads to a Discord login -- the shape Safe Browsing flags
+    as "Deceptive pages". React replaces this markup when it mounts.
+    """
+    name = html.escape(str(config.web_site_name or "").strip() or "Puzzbot")
+    contact = html.escape(str(config.web_contact or "").strip())
+    test = (
+        "<p><strong>Test instance.</strong> This is where new features are tried out "
+        "before they reach the live team site. Expect things to change or break.</p>"
+        if config.web_test_instance else ""
+    )
+    contact_line = (
+        f"<p>Questions about this site? Contact {contact}.</p>" if contact else ""
+    )
+    return (
+        '<main style="max-width:460px;margin:4rem auto;padding:0 16px;'
+        'font-family:system-ui,sans-serif;line-height:1.5;text-align:center">'
+        f"<h1>{name}</h1>"
+        "<p>A private dashboard for puzzle-hunt teams. It works alongside the team's "
+        "Puzzbot Discord bot to keep track of a hunt's puzzles, rounds and answers.</p>"
+        f"{test}"
+        '<p><a href="/api/auth/login?next=%2F">Log in with Discord</a></p>'
+        "<p>The button takes you to discord.com to sign in. We never see your Discord "
+        "password: Discord only tells us who you are, so we can show the hunts your "
+        "team can see.</p>"
+        '<p><a href="/privacy">Privacy</a></p>'
+        f"{contact_line}"
+        "</main>"
+    )
+
+
+def _landing_html(index_html: str) -> str:
+    """index.html as served at ``/``: indexable, with the intro in the markup.
+
+    Every other route keeps ``noindex`` (they are behind login); only the landing
+    page should be readable by search engines, so they can see what the site is.
+    """
+    return (
+        index_html
+        .replace(_NOINDEX_META, "", 1)
+        .replace(_EMPTY_ROOT, f'<div id="root">{_landing_intro()}</div>', 1)
+    )
+
+
 def _register_spa(app):
     """Serve the built SPA so the whole dashboard is a single upstream.
 
@@ -110,7 +163,13 @@ def _register_spa(app):
 
     @app.route("/")
     async def spa_index():
-        return await _send_index()
+        from quart import Response
+        index_path = os.path.join(dist_dir, "index.html")
+        with open(index_path, encoding="utf-8") as f:
+            body = _landing_html(f.read())
+        resp = Response(body, content_type="text/html; charset=utf-8")
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
 
     @app.route("/<path:path>")
     async def spa_catchall(path):
