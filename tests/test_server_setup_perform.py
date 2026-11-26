@@ -251,3 +251,46 @@ async def test_perform_setup_threads_hub_and_multi_team_to_run_setup():
             MagicMock(), MagicMock(), guild, _invoker(), 1000, 70, "Big Hunt", "u", multi_team=True)
     assert run.await_args.kwargs["multi_team"] is True
     assert run.await_args.kwargs["hub"] is hub
+
+
+async def _perform_for_requester(guild, owner_on_hub=True, invoker=None):
+    """perform_setup on behalf of a hub admin (id 7) outside *guild*; returns
+    (outcome, resolve_hub mock, run_setup mock)."""
+    hub = MagicMock(); hub.name = "Hub"
+    requester = MagicMock(); requester.id = 7
+    with patch("bot.core.server_setup.GuildSettingsDb") as gdb, \
+         patch("bot.core.server_setup.hunt_archive.resolve_hub",
+               new=AsyncMock(return_value=(hub, MagicMock()))) as res, \
+         patch("bot.core.server_setup.hunt_archive.hub_member",
+               new=AsyncMock(return_value=MagicMock() if owner_on_hub else None)) as hm, \
+         patch("bot.core.server_setup.preflight", return_value=MagicMock()), \
+         patch("bot.core.server_setup.run_setup", new=AsyncMock(
+             return_value=server_setup.SetupReport(steps=["x"], error="stop"))) as rs:
+        gdb.get.return_value = _settings()
+        out = await server_setup.perform_setup(
+            MagicMock(), MagicMock(), guild, invoker or _invoker(), 1000, 70, "Big Hunt", "u",
+            requester=requester)
+    return out, res, hm, rs
+
+
+async def test_perform_setup_checks_the_hub_as_the_requester():
+    guild = _guild(); guild.owner_id = 42
+    _out, res, hm, rs = await _perform_for_requester(guild)
+    assert res.await_args.args[3].id == 7           # hub admin check: the requester
+    assert hm.await_args.args[1] == 42              # the owner is on the hub
+    assert rs.await_args.args[2].id == 42           # the owner acts on the team server
+
+
+async def test_perform_setup_refuses_a_requester_when_the_owner_isnt_on_the_hub():
+    guild = _guild(); guild.owner_id = 42
+    out, _res, _hm, rs = await _perform_for_requester(guild, owner_on_hub=False)
+    assert not out.ok and "owner isn't a member of Hub" in out.error
+    rs.assert_not_awaited()
+
+
+async def test_perform_setup_for_a_requester_needs_the_owner_as_invoker():
+    guild = _guild(); guild.owner_id = 99
+    with patch("bot.core.server_setup.role_gate.member_holds_tier", return_value=True):
+        out, res, _hm, rs = await _perform_for_requester(guild)
+    assert not out.ok and "Only this server's owner can act" in out.error
+    res.assert_not_awaited(); rs.assert_not_awaited()

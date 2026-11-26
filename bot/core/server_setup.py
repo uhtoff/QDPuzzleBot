@@ -270,9 +270,13 @@ def _refused(text):
 async def perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hunt_name, hunt_url,
                         *, start_timestamp=0, username="", password="", create_solved_sheet=False,
                         sheet_mode="files", on_start=None, invites_by_dashboard=False, via_dashboard=False,
-                        multi_team=False):
+                        multi_team=False, requester=None):
     """The whole !setup_server flow after argument parsing, shared with the
-    dashboard. *invoker* is a Member of *guild*. *on_start*, if given, is
+    dashboard. *invoker* is a Member of *guild*: it acts there (seeds the team
+    role, creates the hunt). *requester*, if given, is the person asking when
+    they aren't in *guild* (a hub admin on the dashboard): *invoker* must then
+    be the server's owner, and the hub checks run against *requester*, who
+    may only use a hub the owner is also a member of. *on_start*, if given, is
     awaited with the team role name once the checks pass and before anything is
     made (the command uses it for its "Setting up…" line). *invites_by_dashboard*
     and *via_dashboard* only reword the closing lines for a dashboard run. A second
@@ -287,14 +291,15 @@ async def perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hu
             create_solved_sheet=create_solved_sheet, sheet_mode=sheet_mode,
             on_start=on_start,
             invites_by_dashboard=invites_by_dashboard, via_dashboard=via_dashboard,
-            multi_team=multi_team)
+            multi_team=multi_team, requester=requester)
     finally:
         _RUNNING.discard(guild.id)
 
 
 async def _perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hunt_name, hunt_url,
                          *, start_timestamp, username, password, create_solved_sheet,
-                         sheet_mode, on_start, invites_by_dashboard, via_dashboard, multi_team):
+                         sheet_mode, on_start, invites_by_dashboard, via_dashboard, multi_team,
+                         requester=None):
     from bot.core import mod_invite       # mod_invite imports this module
     from bot.core.notifier import DiscordNotifier
 
@@ -306,8 +311,14 @@ async def _perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, h
     if invoker.id != guild.owner_id and not role_gate.member_holds_tier(
             {r.id for r in invoker.roles}, guild, ADMIN_ROLES):
         return _refused("Only this server's owner (or an admin here) can run !setup_server.")
+    if requester is not None and invoker.id != guild.owner_id:
+        return _refused("Only this server's owner can act for a hub admin who isn't here.")
     try:
-        hub, hub_row = await hunt_archive.resolve_hub(bot, hub_id, guild, invoker)
+        hub, hub_row = await hunt_archive.resolve_hub(bot, hub_id, guild, requester or invoker)
+        if requester is not None and await hunt_archive.hub_member(hub, guild.owner_id) is None:
+            raise hunt_archive.HubUnavailable(
+                f"this server's owner isn't a member of {hub.name}, so only someone in "
+                "this server can set it up under that hub")
         targets = preflight(guild, settings, hub, roster_role_id, hunt_name)
     except (hunt_archive.HubUnavailable, SetupRefused) as e:
         return _refused(str(e))
