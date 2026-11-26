@@ -276,7 +276,7 @@ async def perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hu
     role, creates the hunt). *requester*, if given, is the person asking when
     they aren't in *guild* (a hub admin on the dashboard): *invoker* must then
     be the server's owner, and the hub checks run against *requester*, who
-    may only use a hub the owner is also a member of. *on_start*, if given, is
+    may only use a hub the owner owns or is an admin of. *on_start*, if given, is
     awaited with the team role name once the checks pass and before anything is
     made (the command uses it for its "Setting up…" line). *invites_by_dashboard*
     and *via_dashboard* only reword the closing lines for a dashboard run. A second
@@ -315,10 +315,10 @@ async def _perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, h
         return _refused("Only this server's owner can act for a hub admin who isn't here.")
     try:
         hub, hub_row = await hunt_archive.resolve_hub(bot, hub_id, guild, requester or invoker)
-        if requester is not None and await hunt_archive.hub_member(hub, guild.owner_id) is None:
+        if requester is not None and not await hunt_archive.owner_runs_hub(hub, guild):
             raise hunt_archive.HubUnavailable(
-                f"this server's owner isn't a member of {hub.name}, so only someone in "
-                "this server can set it up under that hub")
+                f"this server's owner isn't an owner or admin of {hub.name}, so only "
+                "someone in this server can set it up under that hub")
         targets = preflight(guild, settings, hub, roster_role_id, hunt_name)
     except (hunt_archive.HubUnavailable, SetupRefused) as e:
         return _refused(str(e))

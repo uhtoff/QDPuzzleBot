@@ -151,3 +151,28 @@ async def test_ensure_hub_archive_channel_truncates_the_name_to_100_chars():
     await hunt_archive.ensure_hub_archive_channel(hub, _hunt("abc"), "x" * 150)
     hub.create_text_channel.assert_awaited_once_with(
         "x" * 100, topic="puzzbot-archive:abc")
+
+
+def _team_owned_by(owner_id):
+    g = _team(); g.owner_id = owner_id
+    return g
+
+
+async def test_owner_runs_hub_when_they_own_it_without_the_admin_tier():
+    hub = _hub(_member()); hub.owner_id = USER
+    with patch("bot.core.hunt_archive.role_gate.tier_role_ids", return_value={50}):
+        assert await hunt_archive.owner_runs_hub(hub, _team_owned_by(USER))
+
+
+async def test_owner_runs_hub_when_they_hold_its_admin_tier():
+    hub = _hub(_member(50)); hub.owner_id = 1
+    with patch("bot.core.hunt_archive.role_gate.tier_role_ids", return_value={50}):
+        assert await hunt_archive.owner_runs_hub(hub, _team_owned_by(USER))
+    hub.get_member.assert_called_once_with(USER)
+
+
+@pytest.mark.parametrize("member", [None, _member(7)])
+async def test_owner_doesnt_run_hub_as_a_plain_member_or_outsider(member):
+    hub = _hub(member); hub.owner_id = 1
+    with patch("bot.core.hunt_archive.role_gate.tier_role_ids", return_value={50}):
+        assert not await hunt_archive.owner_runs_hub(hub, _team_owned_by(USER))

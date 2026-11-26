@@ -261,8 +261,8 @@ async def _perform_for_requester(guild, owner_on_hub=True, invoker=None):
     with patch("bot.core.server_setup.GuildSettingsDb") as gdb, \
          patch("bot.core.server_setup.hunt_archive.resolve_hub",
                new=AsyncMock(return_value=(hub, MagicMock()))) as res, \
-         patch("bot.core.server_setup.hunt_archive.hub_member",
-               new=AsyncMock(return_value=MagicMock() if owner_on_hub else None)) as hm, \
+         patch("bot.core.server_setup.hunt_archive.owner_runs_hub",
+               new=AsyncMock(return_value=owner_on_hub)) as hm, \
          patch("bot.core.server_setup.preflight", return_value=MagicMock()), \
          patch("bot.core.server_setup.run_setup", new=AsyncMock(
              return_value=server_setup.SetupReport(steps=["x"], error="stop"))) as rs:
@@ -273,18 +273,22 @@ async def _perform_for_requester(guild, owner_on_hub=True, invoker=None):
     return out, res, hm, rs
 
 
+def hub_of(resolve_mock):
+    return resolve_mock.return_value[0]
+
+
 async def test_perform_setup_checks_the_hub_as_the_requester():
     guild = _guild(); guild.owner_id = 42
     _out, res, hm, rs = await _perform_for_requester(guild)
     assert res.await_args.args[3].id == 7           # hub admin check: the requester
-    assert hm.await_args.args[1] == 42              # the owner is on the hub
+    assert hm.await_args.args == (hub_of(res), guild)   # owner runs the chosen hub
     assert rs.await_args.args[2].id == 42           # the owner acts on the team server
 
 
 async def test_perform_setup_refuses_a_requester_when_the_owner_isnt_on_the_hub():
     guild = _guild(); guild.owner_id = 42
     out, _res, _hm, rs = await _perform_for_requester(guild, owner_on_hub=False)
-    assert not out.ok and "owner isn't a member of Hub" in out.error
+    assert not out.ok and "owner isn't an owner or admin of Hub" in out.error
     rs.assert_not_awaited()
 
 

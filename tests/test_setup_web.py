@@ -51,12 +51,14 @@ def web():
 
     hub_roles = {HUB_A: [ADMIN_ROLE], HUB_B: []}
     not_on_hub = set()   # (hub id, user id) pairs that aren't hub members
+    plain_on_hub = set() # (hub id, user id) pairs that are members without admin
 
     async def hub_member(hub, uid):
         if (hub.id, uid) in not_on_hub:
             return None
         if uid != USER:
-            return SimpleNamespace(id=uid, roles=[])
+            roles = [] if (hub.id, uid) in plain_on_hub else [ADMIN_ROLE]
+            return SimpleNamespace(id=uid, roles=[SimpleNamespace(id=r) for r in roles])
         return _member(hub_roles.get(hub.id, [ADMIN_ROLE]))
 
     def tier_ids(guild, names):
@@ -109,6 +111,7 @@ def web():
         state.client = app.test_client()
         state.hub_roles = hub_roles
         state.not_on_hub = not_on_hub
+        state.plain_on_hub = plain_on_hub
         yield state
     finally:
         stop_patches(patches)
@@ -183,6 +186,22 @@ async def test_hub_admin_outside_refused_when_owner_not_on_the_hub(web):
         assert resp.status_code == 403
         assert (await resp.get_json())["error"] == "not_a_member"
     web.perform.assert_not_awaited()
+
+
+async def test_hub_admin_outside_refused_when_owner_is_only_a_plain_hub_member(web):
+    _hub_admin_outside_the_server(web)
+    web.plain_on_hub.add((HUB_A, OWNER))
+    for resp in (await web.client.get(URL), await web.client.post(URL, json=BODY)):
+        assert resp.status_code == 403
+    web.perform.assert_not_awaited()
+
+
+async def test_hub_admin_outside_allowed_when_owner_owns_the_hub_without_mod(web):
+    _hub_admin_outside_the_server(web)
+    web.plain_on_hub.add((HUB_A, OWNER))
+    web.hub_a.owner_id = OWNER
+    assert (await web.client.post(URL, json=BODY)).status_code == 200
+    web.perform.assert_awaited_once()
 
 
 async def test_hub_admin_outside_lists_only_hubs_the_owner_is_on(web):

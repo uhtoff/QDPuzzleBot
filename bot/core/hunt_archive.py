@@ -110,6 +110,17 @@ async def hub_member(hub, user_id):
     return member
 
 
+async def owner_runs_hub(hub, guild):
+    """Whether *guild*'s owner owns *hub* or holds its Admin tier: the bar for
+    letting a hub admin outside *guild* set it up (the generic account that
+    clones team servers owns the hub). HTTPException propagates."""
+    if guild.owner_id == hub.owner_id:
+        return True
+    member = await hub_member(hub, guild.owner_id)
+    return member is not None and role_gate.member_holds_tier(
+        {r.id for r in member.roles}, hub, ADMIN_ROLES)
+
+
 async def resolve_hub(bot, hub_guild_id, guild, invoker):
     """(hub guild, hub `guilds` row) for !archive_hunt_to_hub, or HubUnavailable.
 

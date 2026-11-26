@@ -2139,7 +2139,7 @@ async def _team_setup_ctx(guild_id):
     logged in to the dashboard as themselves. Then *actor* is the server's
     owner (it seeds the team role) and *requester* is the dashboard user;
     the routes must still check _hub_eligible for each hub, so only a hub the
-    owner also belongs to can be used."""
+    owner owns or is an admin of can be used."""
     from bot.core import role_gate
     guilds_map = await web_data.get_guilds_map()
     row = guilds_map.get(guild_id)
@@ -2199,7 +2199,7 @@ async def _guild_member(guild, user_id):
 async def _hub_eligible(hub, user_id, guild, *, owner_must_be_there):
     """Whether *user_id* may set *guild* up under *hub*: they hold the Admin
     tier there and, when *owner_must_be_there* (a requester outside *guild*),
-    the server's owner is a member of *hub* too. A Discord error counts as no."""
+    the server's owner owns *hub* or holds its Admin tier too. A Discord error counts as no."""
     from bot.core import hunt_archive, role_gate
     try:
         hub_user = await hunt_archive.hub_member(hub, user_id)
@@ -2207,7 +2207,7 @@ async def _hub_eligible(hub, user_id, guild, *, owner_must_be_there):
                 {r.id for r in hub_user.roles}, hub, ADMIN_ROLES):
             return False
         if owner_must_be_there:
-            return await hunt_archive.hub_member(hub, guild.owner_id) is not None
+            return await hunt_archive.owner_runs_hub(hub, guild)
     except discord.HTTPException:
         return False
     return True
