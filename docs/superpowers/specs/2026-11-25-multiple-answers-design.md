@@ -97,6 +97,22 @@ Situations 2 and 4 are rare; they should be *modellable*, not optimised.
   answer seam keeps it in sync with the derived rule.
 - **`puzzles.solution`** stays, rebuilt from the answer rows (`/`-joined in `position` order) on
   every answer write, so existing readers keep working. It is written only by the answer seam.
+- **One entry, one answer (user decision, 2026-11-26) — a prerequisite for stage 2.** Answers
+  can contain `/` (`AC/DC`, `1/2`, `N/A`), so a `/` typed in `!solve`, `!partial`,
+  `!add_solution`, `!change_solution` or a dashboard answer box is part of the answer, never a
+  separator. Several answers come only from separate entries (`!partial AC`, then `!solve DC`).
+  Stage 1 still splits on `/` (`split_answers` in `bot/core/answers.py`, used on input AND by
+  `ensure_loaded`, where the string wins on drift). That is harmless while nothing reads the rows
+  (they are re-derived from the string on every load), but it must change before anything does.
+  Consequences to settle at the start of stage 2:
+  - **The stored string must be unambiguous, or stop being parsed.** Either join several answers
+    with a separator no answer uses (e.g. ` / ` with spaces — a visible change, `A / B`), or make
+    the rows the truth and the string a derived display only, never split (needs every direct
+    writer of `puzzles.solution`, e.g. the `update_settings` hole, routed through the seam first).
+  - **Existing data is ambiguous:** a stored `A/B` may be one answer or two, and nothing records
+    which. List them (`SELECT … WHERE solution LIKE '%/%'`; live had a maximum of 11 fragments on
+    2026-11-26), have someone mark each, and re-derive their rows in a follow-up migration. Migration
+    065's backfill split on `/` and is re-runnable only until stage 2 ships.
 - **The `feeds` tag stays** and keeps its current meaning for unsolved puzzles ("expected to feed
   this target"; drives the meta table's blank placeholder row) and drives auto-placement.
 - **Migration:** split each existing `puzzles.solution` on `/` into answer rows (skip empty
