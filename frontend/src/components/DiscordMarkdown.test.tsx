@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MantineProvider } from "@mantine/core";
-import { DiscordMarkdown } from "./DiscordMarkdown";
+import { ChannelNamesContext, DiscordMarkdown } from "./DiscordMarkdown";
 
 const render = (text: string) =>
   renderToStaticMarkup(
@@ -40,5 +40,25 @@ describe("DiscordMarkdown", () => {
 
   it("keeps line breaks within a paragraph", () => {
     expect(render("one\ntwo")).toMatch(/one<br\/>two/);
+  });
+
+  it("a bare Discord link is a chip naming its puzzle, from the page's channel names", () => {
+    const url = "https://discord.com/channels/1227/1574/1575";
+    const html = renderToStaticMarkup(
+      <MantineProvider>
+        <ChannelNamesContext.Provider value={new Map([["1574", "Cap ONe"]])}>
+          <DiscordMarkdown text={`see ${url}`} />
+        </ChannelNamesContext.Provider>
+      </MantineProvider>,
+    );
+    expect(html).toContain("#Cap ONe › 💬");
+    expect(html).toContain(`href="${url}"`);
+    expect(html).toContain(`title="${url}"`);
+  });
+
+  it("a [text](discord link) keeps its own text", () => {
+    const html = render("[the clue](https://discord.com/channels/1/2/3)");
+    expect(html).toContain(">the clue</a>");
+    expect(html).not.toContain("💬");
   });
 });
