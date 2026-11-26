@@ -116,7 +116,7 @@ Situations 2 and 4 are rare; they should be *modellable*, not optimised.
   - **Live, 2026-11-26: 74 puzzles hold a `/`; 68 are genuine multiple answers** (most: 9, Dark
     Link), so splitting on `/` is right for existing data. **6 are single answers containing
     slashes:** puzzle ids 2194 (`(/◕ヮ◕)/`) and 5028–5032 (the five Ocarina "Barrier" puzzles,
-    backtick-quoted `/` and `\` strings) — re-derive those as one answer each. Quirks to keep:
+    backtick-quoted `/` and `\` strings) — **done in 065 (3652821)**: they backfill as one row each, matched by the HEX of their bytes. Stage 2's 066 repair must not re-split them (its TRIM of outer `/` makes `(/◕ヮ◕)/` look drifted), and stage 2's input parsing must follow one-entry-one-answer. Quirks to keep:
     trailing `/` (3166, 3165: empty piece dropped), a tick piece (4957 `LEEVER HANGING/✅`: tick
     dropped), repeated answers (4894, 4887, 4898, 4901, and 3843's THIRTEEN twice: keep both), and
     spaces around `/` (5062, 2171: trimmed). Because 68 of 74 are real multi-answers, prefer
