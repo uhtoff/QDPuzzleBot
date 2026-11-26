@@ -109,3 +109,22 @@ def test_backfill_is_rerunnable():
     finally:
         _delete(pid)
         _delete(pid2)
+
+
+# Answers that contain '/' as part of ONE answer (live, 2026-11-26): built from
+# their UTF-8 bytes so no backslash escaping can change them on the way here.
+SPACEWALK = bytes.fromhex("282FE29795E383AEE29795292F").decode("utf-8")       # (/◕ヮ◕)/
+BARRIER_TWO = bytes.fromhex("602F2F5C5C2F5C2F5C2F5C5C5C5C60").decode("utf-8")  # `//\\/\/\/\\\\`
+
+
+def test_backfill_keeps_a_listed_slash_answer_whole():
+    _check(SPACEWALK, 1, "solved", [(SPACEWALK, 1)], 1, 1)
+
+
+def test_backfill_keeps_a_backslash_answer_whole():
+    _check(BARRIER_TWO, 1, "solved", [(BARRIER_TWO, 1)], 1, 1)
+
+
+def test_backfill_still_splits_an_answer_that_merely_resembles_one():
+    # Only the exact listed bytes are whole answers; anything else still splits.
+    _check("(/X)/", 1, "solved", [("(", 1), ("X)", 2)], 2, 1)
