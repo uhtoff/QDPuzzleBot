@@ -10,6 +10,7 @@ from discord.ext import commands
 
 from bot.store import MessageDb
 from bot.core.channel_relay import is_relay_webhook
+from bot.core.mentions import resolve_mentions
 from bot.core.message_media import media_root, attachment_relpath, download_attachment
 from bot.utils import config
 from bot.web import events
@@ -199,6 +200,10 @@ class MessageBridge(commands.Cog):
             return
         author_name = (getattr(message.author, "display_name", None) or message.author.name)[:255]
         avatar = getattr(getattr(message.author, "display_avatar", None), "url", None)
+        resolve = _mention_resolver(
+            message.guild,
+            {u.id: getattr(u, "display_name", None) or u.name for u in message.mentions},
+            {r.id: r.name for r in message.role_mentions})
         rec = {
             "op": "insert",
             "id": message.id,
@@ -208,8 +213,8 @@ class MessageBridge(commands.Cog):
             "author_name": author_name,
             "author_avatar": avatar,
             "kind": self._kind_for(message),
-            "content": message.content or "",
-            "embeds": _embeds_json([e.to_dict() for e in message.embeds]),
+            "content": resolve(message.content or ""),
+            "embeds": _embeds_json([e.to_dict() for e in message.embeds], resolve),
             "reference_id": (message.reference.message_id if message.reference else None),
             "created_at": message.created_at.replace(tzinfo=None),
             "attachments": [
@@ -229,11 +234,13 @@ class MessageBridge(commands.Cog):
             return  # embed-only / non-content edit
         edited = (payload.data or {}).get("edited_timestamp")
         data = payload.data or {}
+        guild = self.bot.get_guild(payload.guild_id) if payload.guild_id else None
+        resolve = _mention_resolver(guild, _payload_user_names(data.get("mentions")), {})
         rec = {"op": "edit", "id": payload.message_id,
                "channel_id": payload.channel_id, "guild_id": payload.guild_id,
-               "content": content, "edited_at": _parse_iso(edited)}
+               "content": resolve(content), "edited_at": _parse_iso(edited)}
         if "embeds" in data:  # only rewrite embeds when the payload actually carries them
-            rec["embeds"] = _embeds_json(data["embeds"])
+            rec["embeds"] = _embeds_json(data["embeds"], resolve)
         self._enqueue(rec)
 
     @commands.Cog.listener()
@@ -356,13 +363,48 @@ class MessageBridge(commands.Cog):
         await asyncio.to_thread(MessageDb.set_attachment_local, att["id"], rel if ok else None, 1 if ok else 2)
 
 
-def _normalize_embeds(raw_embeds) -> list[dict]:
+def _mention_resolver(guild, users: dict, roles: dict):
+    """A text -> text function naming the user/role mentions in a message.
+
+    *users* / *roles* are the names the message itself carries (its mention
+    objects, or a raw edit payload's); anything else (an embed's mentions, which
+    Discord does not list) falls back to the guild cache."""
+    def user_name(uid):
+        if users.get(uid):
+            return users[uid]
+        member = guild.get_member(uid) if guild is not None else None
+        return getattr(member, "display_name", None)
+
+    def role_name(rid):
+        if roles.get(rid):
+            return roles[rid]
+        role = guild.get_role(rid) if guild is not None else None
+        return getattr(role, "name", None)
+
+    return lambda text: resolve_mentions(text, user_name, role_name)
+
+
+def _payload_user_names(mentions) -> dict:
+    """{user id: display name} from a gateway payload's ``mentions`` list: the
+    server nickname, else the global display name, else the username."""
+    out = {}
+    for u in mentions or []:
+        if not isinstance(u, dict) or not u.get("id"):
+            continue
+        name = (u.get("member") or {}).get("nick") or u.get("global_name") or u.get("username")
+        if name:
+            out[int(u["id"])] = name
+    return out
+
+
+def _normalize_embeds(raw_embeds, resolve=lambda text: text) -> list[dict]:
     """Reduce Discord embed dicts to the stable subset the viewer renders.
 
     Accepts the output of ``discord.Embed.to_dict()`` (live send path) or the raw
     embed dicts from a gateway MESSAGE_UPDATE payload — both share the Discord
     embed schema. Returns a list of ``{title, description, url, color, fields,
-    footer}`` dicts (missing keys omitted)."""
+    footer}`` dicts (missing keys omitted). *resolve* names the user/role
+    mentions in the text parts (see ``_mention_resolver``)."""
     out: list[dict] = []
     for e in raw_embeds or []:
         if not isinstance(e, dict):
@@ -370,9 +412,9 @@ def _normalize_embeds(raw_embeds) -> list[dict]:
         norm: dict = {}
         for key in ("title", "description", "url", "color"):
             if e.get(key) is not None:
-                norm[key] = e[key]
+                norm[key] = resolve(e[key]) if key in ("title", "description") else e[key]
         fields = [
-            {"name": f.get("name", ""), "value": f.get("value", ""),
+            {"name": resolve(f.get("name", "")), "value": resolve(f.get("value", "")),
              "inline": bool(f.get("inline", False))}
             for f in (e.get("fields") or []) if isinstance(f, dict)
         ]
@@ -380,15 +422,15 @@ def _normalize_embeds(raw_embeds) -> list[dict]:
             norm["fields"] = fields
         footer = e.get("footer")
         if isinstance(footer, dict) and footer.get("text"):
-            norm["footer"] = footer["text"]
+            norm["footer"] = resolve(footer["text"])
         if norm:
             out.append(norm)
     return out
 
 
-def _embeds_json(raw_embeds) -> str | None:
+def _embeds_json(raw_embeds, resolve=lambda text: text) -> str | None:
     """Normalized embeds as a JSON string for storage, or None when empty."""
-    norm = _normalize_embeds(raw_embeds)
+    norm = _normalize_embeds(raw_embeds, resolve)
     return json.dumps(norm) if norm else None
 
 
