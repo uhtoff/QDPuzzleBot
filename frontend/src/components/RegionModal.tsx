@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Box,
   Button,
   Divider,
   Group,
@@ -23,6 +24,8 @@ import { notifyError } from "../util";
 import { useChannelClashPrompt } from "./ChannelClashPrompt";
 import { puzzleOptions } from "../lib/boardPuzzles";
 import { existingRegion, type SavedShape } from "../lib/regionTarget";
+import { hasFormatting } from "../lib/discordMarkdown";
+import { DiscordMarkdown } from "./DiscordMarkdown";
 import type { CanvasRegion, HuntDetail, RegionRole, RegionShape } from "../types";
 
 // Sentinel dropdown value for "no round" — matches CreateControls' pattern,
@@ -227,6 +230,12 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
           description="Free text. Transcription is the usual use."
           autosize minRows={3} maxRows={10}
           value={note} onChange={(e) => setNote(e.currentTarget.value)} />
+        {hasFormatting(note) && (
+          <Box>
+            <Text size="xs" c="dimmed" mb={4}>Preview (as Discord shows it)</Text>
+            <DiscordMarkdown text={note} />
+          </Box>
+        )}
 
         <Divider label="Link to a puzzle" labelPosition="left" />
 
