@@ -16,6 +16,7 @@
 body { margin: 0; font: 13px/1.4 system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
 #head { padding: 8px 10px; font-weight: 600; border-bottom: 1px solid var(--line); }
 #notice { padding: 10px; border-bottom: 1px solid var(--line); }
+#update[hidden] { display: none; }
 #update { display: flex; gap: 6px; align-items: flex-start; padding: 6px 10px; font-size: 12px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, Highlight 12%, transparent); }
 #update .u-text { flex: 1; }
 #update .u-text b { font-weight: 600; }
