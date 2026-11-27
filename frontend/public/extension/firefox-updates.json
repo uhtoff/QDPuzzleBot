@@ -16,6 +16,11 @@
           "version": "1.2.1",
           "update_link": "https://quarantinedecrypters.com/extension/puzzle-chat-firefox-1.2.1.xpi",
           "update_hash": "sha256:c2fef558a87396680f33665f2c545fa153a93dfc23849389124912854e271463"
+        },
+        {
+          "version": "1.2.2",
+          "update_link": "https://quarantinedecrypters.com/extension/puzzle-chat-firefox-1.2.2.xpi",
+          "update_hash": "sha256:6aba6434873cecd5a05df76824f7a947f01dbad27378b808e6b09fb14d2f57de"
         }
       ]
     }
