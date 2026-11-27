@@ -326,7 +326,8 @@ async def channel_messages(channel_id):
 
 
 async def _member_channel_gate(user, channel_id: int, hunt, *,
-                               allow_thread: bool = False) -> tuple[Any, Any]:
+                               allow_thread: bool = False,
+                               require_attach: bool = False) -> tuple[Any, Any]:
     """The Discord-side gate for posting into a channel as `user`.
 
     Returns (channel, member) when the member may post there, else a ready
@@ -338,7 +339,10 @@ async def _member_channel_gate(user, channel_id: int, hunt, *,
     With `allow_thread`, `channel_id` may name a thread (a mini puzzle's
     channel): it is resolved with get_channel_or_thread and gated as Discord
     gates a thread — view_channel plus send_messages_in_threads, both from
-    Thread.permissions_for (the parent's permissions, adjusted)."""
+    Thread.permissions_for (the parent's permissions, adjusted). A locked
+    thread also needs manage_threads, as in Discord.
+
+    With `require_attach` (a post carrying a file), attach_files is needed too."""
     guilds_map = await data.get_guilds_map()
     snowflake = guilds_map.get(hunt["guild_id"], {}).get("guild_snowflake")
     guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
@@ -360,6 +364,10 @@ async def _member_channel_gate(user, channel_id: int, hunt, *,
         return jsonify({"error": "not_found_or_forbidden"}), 404
     can_send = perms.send_messages_in_threads if is_thread else perms.send_messages
     if member.is_timed_out() or not (perms.view_channel and can_send):
+        return jsonify({"error": "forbidden"}), 403
+    if is_thread and channel.locked and not perms.manage_threads:
+        return jsonify({"error": "forbidden"}), 403
+    if require_attach and not perms.attach_files:
         return jsonify({"error": "forbidden"}), 403
     return channel, member
 
@@ -498,7 +506,8 @@ async def post_media_to_channel(media_id):
         # hunts.channel_id / puzzles.channel_id can be unset: nowhere to post.
         return jsonify({"error": "not_found_or_forbidden"}), 404
 
-    gated = await _member_channel_gate(user, int(channel_id), hunt, allow_thread=True)
+    gated = await _member_channel_gate(user, int(channel_id), hunt, allow_thread=True,
+                                       require_attach=True)
     if isinstance(gated[1], int):
         return gated
     channel, member = gated

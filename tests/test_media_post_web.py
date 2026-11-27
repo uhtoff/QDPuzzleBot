@@ -30,15 +30,18 @@ def _evidence(eid=21, hunt_id=4, media_id=50, source=11):
 @asynccontextmanager
 async def _client(*, hunt=HUNT, visible=True, view=True, send=True, media=True,
                   puzzles=None, own_images=(50,), ev_images=(), evidence=None,
-                  guild_info=GUILD_INFO, send_side_effect=None, thread=False, thread_send=True):
+                  guild_info=GUILD_INFO, send_side_effect=None, thread=False, thread_send=True,
+                  attach=True, locked=False, manage_threads=False):
     puzzles = {11: _puzzle()} if puzzles is None else puzzles
     member = MagicMock()
     member.is_timed_out.return_value = False
     # A mini puzzle's channel is a thread: guild.get_channel() cannot see it.
     channel = MagicMock(spec=discord.Thread) if thread else MagicMock()
     channel.id = 555
+    channel.locked = locked
     channel.permissions_for.return_value = SimpleNamespace(
-        view_channel=view, send_messages=send, send_messages_in_threads=thread_send)
+        view_channel=view, send_messages=send, send_messages_in_threads=thread_send,
+        attach_files=attach, manage_threads=manage_threads)
     guild = MagicMock()
     guild.get_channel.return_value = None if thread else channel
     guild.get_channel_or_thread.return_value = channel
@@ -327,3 +330,25 @@ async def test_thread_with_uncached_parent_is_404():
     async with _client(puzzles=MINI, thread=True) as c:
         c.channel.permissions_for.side_effect = discord.ClientException("Parent channel not found")
         await _refused(c, await _post(c, puzzle_id="11"), 404, "not_found_or_forbidden")
+
+
+@pytest.mark.asyncio
+async def test_without_attach_files_permission_is_403():
+    # The relay webhook would attach the snapshot regardless; Discord's own
+    # attach_files rule has to be enforced here.
+    async with _client(attach=False) as c:
+        await _refused(c, await _post(c, puzzle_id="11"), 403, "forbidden")
+
+
+@pytest.mark.asyncio
+async def test_locked_mini_thread_is_403_without_manage_threads():
+    async with _client(puzzles=MINI, thread=True, locked=True) as c:
+        await _refused(c, await _post(c, puzzle_id="11"), 403, "forbidden")
+
+
+@pytest.mark.asyncio
+async def test_locked_mini_thread_allows_a_thread_manager():
+    async with _client(puzzles=MINI, thread=True, locked=True, manage_threads=True) as c:
+        resp = await _post(c, puzzle_id="11")
+        assert resp.status_code == 201
+        c.send_as.assert_awaited_once()
