@@ -333,6 +333,7 @@ export default function HuntBoard() {
   return (
     <ChannelNamesContext.Provider value={channelNames}>
     <Stack gap="md">
+      <ExtensionUpdateNotice />
       <Group justify="space-between" align="flex-start">
         <div>
           <Anchor component={Link} to="/" size="sm">
@@ -407,8 +408,6 @@ export default function HuntBoard() {
           {!data.hunt.archived && <CreateControls detail={data} uid={uid!} />}
         </Group>
       </Group>
-
-      <ExtensionUpdateNotice />
 
       <Box style={{ opacity: isPending ? 0.65 : 1, transition: "opacity 120ms ease" }}>
         {(visitedViews.has("board") || shown === "board") && (
