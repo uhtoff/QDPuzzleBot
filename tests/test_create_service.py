@@ -269,6 +269,40 @@ async def test_create_group_stores_category_id_not_text_channel():
 
 
 @pytest.mark.asyncio
+async def test_create_group_makes_its_chat_channel_and_a_solved_divider():
+    """A Group gets its chat channel AND the solved divider, like every other
+    round category, so its solved puzzles sort below the divider."""
+    from bot.core.discord_channels import SOLVE_DIVIDER
+    svc, gsheet = _service_with_sheets()
+    guild = MagicMock()
+    guild.channels = []
+    ref_cat = MagicMock(id=1, position=0)
+    guild.categories = [ref_cat]
+    new_cat = MagicMock(id=2, channels=[])
+    ref_cat.clone = AsyncMock(return_value=new_cat)
+    new_cat.edit = AsyncMock()
+    notifier = MagicMock()
+    notifier.welcome = AsyncMock()
+    made = AsyncMock(return_value=(MagicMock(id=333), True))
+
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.get_or_create_channel", made):
+        rdb.check_duplicates_in_hunt.return_value = False
+        pdb.check_duplicates_in_hunt.return_value = False
+        rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
+        rdb.generate_uid.return_value = "GRP001"
+        await svc.create_tag_group(
+            guild, _svc_hunt(), "New Group",
+            notifier=notifier, meta_puzzle_name=False, round_type="Group")
+
+    names = [c.kwargs["channel_name"] for c in made.await_args_list]
+    assert names == ["new-group", SOLVE_DIVIDER]        # chat channel first, divider after
+    divider = made.await_args_list[1].kwargs
+    assert (divider["category"], divider["position"]) == (new_cat, 500)
+
+
+@pytest.mark.asyncio
 async def test_create_round_creates_round_and_meta_puzzle():
     svc, gsheet = _service_with_sheets()
     guild = MagicMock()
