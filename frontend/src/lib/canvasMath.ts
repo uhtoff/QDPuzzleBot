@@ -105,6 +105,12 @@ export function polylineHitsCircle(
  *  bot/core/markup_shape.py, which refuses coordinates outside it. */
 export const MARKUP_MARGIN = 0.25;
 
+/** A text mark's font size when its shape stores none, as a fraction of the
+ *  image height, and the CSS line-height its lines are laid out with. Shared
+ *  by the editor's text layer and the snapshot renderer. */
+export const TEXT_DEFAULT_SIZE = 0.04;
+export const TEXT_LINE_HEIGHT = 1.2;
+
 /** A client point as normalised image coordinates within `rect`: 0..1 across
  *  the image, clamped to [-margin, 1 + margin]. Null for a zero-size rect,
  *  where the ratio would be NaN or Infinity. */

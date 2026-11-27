@@ -7,7 +7,7 @@ import {
 } from "@tabler/icons-react";
 import type { MarkKind, MarkStyle, MediaMark } from "../types";
 import { useCreateMark, useDeleteMark, useMarkup } from "../api";
-import { MARKUP_MARGIN, normPoint, polylineHitsCircle } from "../lib/canvasMath";
+import { MARKUP_MARGIN, TEXT_DEFAULT_SIZE, TEXT_LINE_HEIGHT, normPoint, polylineHitsCircle } from "../lib/canvasMath";
 import { cycleIndex } from "../lib/cycleIndex";
 import { useWheelZoom } from "../hooks/useZoomPan";
 import { notifyError } from "../util";
@@ -250,13 +250,13 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
         // roughly half an em per character, then test the circle against that
         // rectangle. Erring generous is the right way round: a text mark you
         // meant to keep is one Undo away.
-        const fs = (m.shape.size ?? 0.04) * imgBox.h;
+        const fs = (m.shape.size ?? TEXT_DEFAULT_SIZE) * imgBox.h;
         const [[tx, ty]] = m.shape.points;
         const lines = (m.text ?? "").split("\n");
         const left = tx * imgBox.w;
         const top = ty * imgBox.h;
         const w = fs * 0.5 * Math.max(...lines.map((l) => l.length), 1);
-        const h = fs * 1.2 * lines.length;
+        const h = fs * TEXT_LINE_HEIGHT * lines.length;
         const nx = Math.min(Math.max(cx, left), left + w);
         const ny = Math.min(Math.max(cy, top), top + h);
         hit = Math.hypot(cx - nx, cy - ny) <= r;
@@ -591,7 +591,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
         <div style={{ position: "absolute", pointerEvents: "none",
                       left: `${-MARKUP_MARGIN * 100}%`, right: `${-MARKUP_MARGIN * 100}%`,
                       top: `${-MARKUP_MARGIN * 100}%`, bottom: `${-MARKUP_MARGIN * 100}%`,
-                      lineHeight: 1.2 }}>
+                      lineHeight: TEXT_LINE_HEIGHT }}>
           {(marks.data ?? []).filter((m) => m.kind === "text").map((m) => {
             const [[x, y]] = m.shape.points;
             return (
@@ -603,7 +603,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
                   top: `${((y + MARKUP_MARGIN) / marginScale) * 100}%`,
                   // Font size is stored normalised against the image's height,
                   // so ink scales with the picture rather than the viewport.
-                  fontSize: (m.shape.size ?? 0.04) * (imgBox.h || 0),
+                  fontSize: (m.shape.size ?? TEXT_DEFAULT_SIZE) * (imgBox.h || 0),
                   color: m.style.colour, opacity: m.style.opacity,
                   whiteSpace: "pre-wrap", userSelect: "none",
                   // Erasing text goes through the frame's circle hit-test too,
