@@ -534,11 +534,16 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
       >
        <div style={{ display: "inline-block", lineHeight: 0,
                      padding: `${imgH * MARKUP_MARGIN}px ${imgW * MARKUP_MARGIN}px`,
-                     background: "var(--mantine-color-gray-1)",
-                     outline: "1px dashed var(--mantine-color-gray-4)",
+                     // Scheme-aware: the app follows the OS light/dark setting.
+                     background: "light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5))",
+                     outline: "1px dashed light-dark(var(--mantine-color-gray-5), var(--mantine-color-dark-2))",
                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                      transformOrigin: "0 0" }}>
-       <div style={{ position: "relative", display: "inline-block", lineHeight: 0 }}>
+       {/* The page background behind the image itself, so a transparent PNG
+           looks as it did before and its edge stays visible against the
+           shaded margin. */}
+       <div style={{ position: "relative", display: "inline-block", lineHeight: 0,
+                     background: "var(--mantine-color-body)" }}>
         <img ref={imgRefs} src={`/api/media/${mediaId}`} alt={alt} draggable={false}
              style={{ display: "block",
                       maxWidth: frameW ? frameW / marginScale : "100%",
