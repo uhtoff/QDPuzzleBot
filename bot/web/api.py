@@ -70,6 +70,9 @@ async def list_guilds():
             "guild_snowflake": str(snowflake) if snowflake else None,
             "guild_name": info["guild_name"],
             "can_administer": can_administer,
+            # The server's "voice channel for every puzzle" default, which the
+            # New hunt form starts its checkbox from (as !hunt and setup use it).
+            "voice_per_puzzle_default": bool(info.get("use_voice_channels")),
             "admin_tier_pinned": (
                 role_gate.tier_is_pinned(guild, ADMIN_ROLES) if guild is not None
                 else True   # unresolvable guild: stay quiet rather than cry wolf

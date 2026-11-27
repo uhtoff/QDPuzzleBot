@@ -3,6 +3,9 @@ export interface Guild {
   guild_snowflake: string | null;
   guild_name: string;
   can_administer: boolean;
+  /** The server's "voice channel for every puzzle" setting: the default the
+   *  New hunt form starts from, as !hunt and setup do. */
+  voice_per_puzzle_default: boolean;
   /** False while the guild still matches the ADMIN tier by role name — the one
    *  state worth a banner. The organiser tier's state deliberately isn't here:
    *  leaving it unpinned is legitimate, and nagging about it would train people

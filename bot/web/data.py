@@ -125,13 +125,16 @@ def _iso(value):
 # --- Hunts / guilds ---------------------------------------------------------
 
 async def get_guilds_map():
-    """{guilds.id -> {guild_snowflake, guild_name, website_url}} keyed by row id."""
-    rows = await fetch_all("SELECT id, guild_id, guild_name, website_url FROM guilds")
+    """{guilds.id -> {guild_snowflake, guild_name, website_url,
+    use_voice_channels}} keyed by row id."""
+    rows = await fetch_all("SELECT id, guild_id, guild_name, website_url, "
+                           "discord_use_voice_channels FROM guilds")
     return {
         row["id"]: {
             "guild_snowflake": row["guild_id"],
             "guild_name": row["guild_name"],
             "website_url": row["website_url"],
+            "use_voice_channels": bool(row.get("discord_use_voice_channels")),
         }
         for row in rows
     }
