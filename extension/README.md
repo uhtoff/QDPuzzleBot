@@ -27,7 +27,7 @@ is reachable only by that link, not by searching the Store.
 ## Firefox
 
 Team install link (signed by Mozilla, self-updating):
-<https://quarantinedecrypters.com/extension/puzzle-chat-firefox-1.2.0.xpi>
+<https://quarantinedecrypters.com/extension/puzzle-chat-firefox-1.2.1.xpi>
 
 The same source runs in desktop Firefox 140 or later (not Firefox for Android, which has no
 sidebar). `manifest.json` is the Chrome manifest; the Firefox one is generated from it by
