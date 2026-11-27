@@ -3,7 +3,7 @@
  *  handed, so it is testable without a DOM (encodeSnapshot is the one
  *  exception and takes a real canvas). */
 import type { MediaMark } from "../types";
-import { MARKUP_MARGIN, TEXT_DEFAULT_SIZE } from "./canvasMath";
+import { TEXT_DEFAULT_SIZE } from "./canvasMath";
 
 export type SnapshotCtx = Pick<
   CanvasRenderingContext2D,
@@ -28,11 +28,14 @@ const ARROW_PATH: [number, number][] = [[0, 0], [10, 5], [0, 10]];
 /** Furthest an arrowhead reaches from the line's end, in stroke widths. */
 const ARROW_REACH = 6;
 
-/** Rough text size used for bounds only (no context there to measure with):
- *  half an em per character, the same estimate the eraser hit-test uses. */
-const TEXT_EM_PER_CHAR = 0.5;
-const TEXT_LINE_HEIGHT_BOUNDS = 1.2;
+type TextOpts = { rightEdge: number; fontFamily: string; lineHeight: number };
 
+/** Scale that keeps the longest side within 4096px.
+ *
+ *  Intended use (Task 7): compute `b = snapshotBounds(...)` at natural size,
+ *  size the canvas to `b.w*s` x `b.h*s` with `s = snapshotScale(b.w, b.h)`, then
+ *  `ctx.scale(s, s); ctx.translate(-b.x, -b.y)` and call drawMarkup with the
+ *  NATURAL imgW/imgH. */
 export function snapshotScale(w: number, h: number): number {
   return Math.min(1, MAX_SIDE / Math.max(w, h));
 }
@@ -59,13 +62,27 @@ export function wrapLines(
   return out;
 }
 
+/** Sets ctx.font and wraps a text mark: the one place both bounds and drawing
+ *  decide font size and line breaks. */
+function layoutText(
+  ctx: Pick<CanvasRenderingContext2D, "measureText" | "font">,
+  m: MediaMark, imgW: number, imgH: number, opts: TextOpts,
+): { fs: number; lines: string[] } {
+  const [x] = m.shape.points[0];
+  const fs = (m.shape.size ?? TEXT_DEFAULT_SIZE) * imgH;
+  ctx.font = `${fs}px ${opts.fontFamily}`;
+  return { fs, lines: wrapLines(ctx, m.text ?? "", (opts.rightEdge - x) * imgW) };
+}
+
 /** The image rect united with every mark's extent, in image pixels, rounded
  *  out. Strokes are padded by half their width (an arrow by its head's reach);
- *  text by an estimated box wrapped at the margin's right edge. */
+ *  text by its box measured and wrapped exactly as drawMarkup draws it. */
 export function snapshotBounds(
+  ctx: Pick<CanvasRenderingContext2D, "measureText" | "font">,
   marks: MediaMark[],
   imgW: number,
   imgH: number,
+  opts: TextOpts,
 ): { x: number; y: number; w: number; h: number } {
   let minX = 0, minY = 0, maxX = imgW, maxY = imgH;
   const grow = (x0: number, y0: number, x1: number, y1: number) => {
@@ -75,11 +92,9 @@ export function snapshotBounds(
   for (const m of marks) {
     if (m.kind === "text") {
       const [x, y] = m.shape.points[0];
-      const fs = (m.shape.size ?? TEXT_DEFAULT_SIZE) * imgH;
-      const lines = (m.text ?? "").split("\n");
-      const widest = Math.max(...lines.map((l) => l.length), 1) * fs * TEXT_EM_PER_CHAR;
-      const w = Math.min(widest, Math.max(0, (1 + MARKUP_MARGIN - x) * imgW));
-      grow(x * imgW, y * imgH, x * imgW + w, y * imgH + fs * TEXT_LINE_HEIGHT_BOUNDS * lines.length);
+      const { fs, lines } = layoutText(ctx, m, imgW, imgH, opts);
+      const w = Math.max(...lines.map((l) => ctx.measureText(l).width), 0);
+      grow(x * imgW, y * imgH, x * imgW + w, y * imgH + fs * opts.lineHeight * lines.length);
     } else {
       const pad = (m.style.arrow ? ARROW_REACH : 0.5) * m.style.width;
       for (const [x, y] of m.shape.points) {
@@ -133,47 +148,46 @@ function drawStroke(ctx: SnapshotCtx, m: MediaMark): void {
 }
 
 function drawText(
-  ctx: SnapshotCtx, m: MediaMark, imgW: number, imgH: number,
-  opts: { rightEdge: number; fontFamily: string; lineHeight: number },
+  ctx: SnapshotCtx, m: MediaMark, imgW: number, imgH: number, opts: TextOpts,
 ): void {
   const [x, y] = m.shape.points[0];
-  const fs = (m.shape.size ?? TEXT_DEFAULT_SIZE) * imgH;
   ctx.save();
   ctx.globalAlpha = m.style.opacity;
   ctx.fillStyle = m.style.colour;
-  ctx.font = `${fs}px ${opts.fontFamily}`;
+  const { fs, lines } = layoutText(ctx, m, imgW, imgH, opts);
   ctx.textBaseline = "middle"; // the CSS line box centres the glyphs
   ctx.textAlign = "left";
-  const lines = wrapLines(ctx, m.text ?? "", (opts.rightEdge - x) * imgW);
   const lh = fs * opts.lineHeight;
   lines.forEach((line, i) => ctx.fillText(line, x * imgW, y * imgH + lh * (i + 0.5)));
   ctx.restore();
 }
 
-/** Draw `img` at (0,0,imgW,imgH) then every mark in stored order. Strokes are
+/** Draw `img` at (0,0,imgW,imgH), then all strokes, then all text. Strokes are
  *  drawn in normalised space under scale(imgW, imgH), exactly as the editor's
  *  viewBox="0 0 1 1" preserveAspectRatio="none" SVG scales them, so stroke
  *  thickness is non-uniform on a non-square image. `rightEdge` is the right
- *  edge of the box text wraps against, in image-normalised units. */
+ *  edge of the box text wraps against, in image-normalised units.
+ *
+ *  Layering matches the editor: the SVG strokes are all painted first (stored
+ *  order), then the HTML text layer on top (stored order).
+ *
+ *  Task 7 use: pass the NATURAL imgW/imgH, after `ctx.scale(s, s);
+ *  ctx.translate(-b.x, -b.y)` where b = snapshotBounds(...) and
+ *  s = snapshotScale(b.w, b.h). */
 export function drawMarkup(
   ctx: SnapshotCtx,
   img: CanvasImageSource,
   marks: MediaMark[],
   imgW: number,
   imgH: number,
-  opts: { rightEdge: number; fontFamily: string; lineHeight: number },
+  opts: TextOpts,
 ): void {
   ctx.drawImage(img, 0, 0, imgW, imgH);
-  for (const m of marks) {
-    if (m.kind === "text") {
-      drawText(ctx, m, imgW, imgH, opts);
-    } else {
-      ctx.save();
-      ctx.scale(imgW, imgH);
-      drawStroke(ctx, m);
-      ctx.restore();
-    }
-  }
+  ctx.save();
+  ctx.scale(imgW, imgH);
+  for (const m of marks) if (m.kind !== "text") drawStroke(ctx, m);
+  ctx.restore();
+  for (const m of marks) if (m.kind === "text") drawText(ctx, m, imgW, imgH, opts);
 }
 
 function toBlob(canvas: HTMLCanvasElement, type: string, q?: number): Promise<Blob | null> {

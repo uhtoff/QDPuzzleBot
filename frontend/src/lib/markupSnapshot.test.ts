@@ -63,32 +63,48 @@ describe("wrapLines", () => {
 
 describe("snapshotBounds", () => {
   it("is the image when nothing leaves it", () => {
-    const b = snapshotBounds([mark({})], 1000, 500);
+    const b = snapshotBounds(fakeCtx().ctx, [mark({})], 1000, 500, opts);
     expect(b).toEqual({ x: 0, y: 0, w: 1000, h: 500 });
   });
   it("grows left and up for a mark in the top-left margin", () => {
-    const b = snapshotBounds(
+    const b = snapshotBounds(fakeCtx().ctx,
       [mark({ shape: { points: [[-0.2, -0.1], [0.3, 0.3]] }, style: { colour: "#000", width: 0, opacity: 1, arrow: false } })],
-      1000, 500);
+      1000, 500, opts);
     expect(b).toEqual({ x: -200, y: -50, w: 1200, h: 550 });
   });
   it("pads strokes by half their width and rounds outwards", () => {
-    const b = snapshotBounds(
+    const b = snapshotBounds(fakeCtx().ctx,
       [mark({ shape: { points: [[-0.1, 0.5], [0.5, 0.5]] }, style: { colour: "#000", width: 0.01, opacity: 1, arrow: false } })],
-      1000, 500);
+      1000, 500, opts);
     // left = -100 - 0.005*1000 = -105
     expect(b.x).toBe(-105);
     expect(b.y).toBe(0);
     expect(b.w).toBe(1105);
     expect(b.h).toBe(500);
   });
-  it("includes text extents, wrapped at the margin edge", () => {
-    const b = snapshotBounds(
-      [mark({ kind: "text", shape: { points: [[1.0, 1.1]], size: 0.04 }, text: "x".repeat(200) })],
-      1000, 500);
+  it("measures text as drawn: wrapped line count and measured width", () => {
+    // x=1.0, y=1.1, size .04 -> fs 20, line step 24. Available 250px = 25 chars.
+    // 6 words of 10 chars wrap two per line (21 chars) -> 3 lines, widest 210px.
+    const words = Array.from({ length: 6 }, () => "x".repeat(10)).join(" ");
+    const b = snapshotBounds(fakeCtx().ctx,
+      [mark({ kind: "text", shape: { points: [[1.0, 1.1]], size: 0.04 }, text: words })],
+      1000, 500, opts);
     expect(b.x).toBe(0);
-    expect(b.w).toBe(1250); // capped at 1 + margin
-    expect(b.h).toBeGreaterThan(500 + 50);
+    expect(b.w).toBe(1210); // 1000 + widest measured line (210)
+    expect(b.y).toBe(0);
+    expect(b.h).toBe(Math.ceil(550 + 3 * 24)); // all three wrapped lines
+  });
+  it("uses the measured width, so wide glyphs widen the box", () => {
+    const { ctx } = fakeCtx();
+    ctx.measureText = (t: string) => ({ width: t.length * 30 }) as TextMetrics;
+    const b = snapshotBounds(ctx,
+      [mark({ kind: "text", shape: { points: [[0.5, 0.1]], size: 0.04 }, text: "abcde" })],
+      1000, 500, opts);
+    expect(b.w).toBe(1000 + 0); // 500 + 150 stays inside the image
+    const b2 = snapshotBounds(ctx,
+      [mark({ kind: "text", shape: { points: [[0.9, 0.1]], size: 0.04 }, text: "abcde" })],
+      1000, 500, opts);
+    expect(b2.w).toBe(1050); // 900 + 150
   });
 });
 
@@ -159,13 +175,17 @@ describe("drawMarkup", () => {
     expect((ft[1].args[2] as number) - (ft[0].args[2] as number)).toBeCloseTo(30);
   });
 
-  it("draws marks in stored order", () => {
+  it("draws every stroke first, then every text, each in stored order (editor layering)", () => {
     const { ctx, calls } = fakeCtx();
+    const stroke = (id: number, x: number) => mark({ id, shape: { points: [[x, 0.1], [x, 0.9]] } });
+    const text = (id: number, t: string) =>
+      mark({ id, kind: "text", shape: { points: [[0.1, 0.1]] }, text: t });
     drawMarkup(ctx, {} as CanvasImageSource, [
-      mark({ id: 1, kind: "text", shape: { points: [[0.1, 0.1]] }, text: "t" }),
-      mark({ id: 2 }),
+      text(1, "first"), stroke(2, 0.2), text(3, "second"), stroke(4, 0.3),
     ], 1000, 500, opts);
-    const ops = calls.map((c) => c.op);
-    expect(ops.indexOf("fillText")).toBeLessThan(ops.indexOf("stroke"));
+    const seq = calls.filter((c) => c.op === "stroke" || c.op === "fillText").map((c) => c.args[0] ?? "S");
+    expect(seq).toEqual(["S", "S", "first", "second"]);
+    const xs = calls.filter((c) => c.op === "moveTo").map((c) => c.args[0]);
+    expect(xs).toEqual([0.2, 0.3]);
   });
 });
