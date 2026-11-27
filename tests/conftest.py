@@ -193,9 +193,13 @@ def make_hunt(
     id=10,
     google_sheet_id="SHEET1",
     solved_sheet_id="ARCHIVE1",
+    sheet_mode="tabs",
+    header_style="full",
     **kwargs,
 ):
-    """Return a HuntData with sensible defaults.
+    """Return a HuntData with sensible defaults: a tabs hunt with a solved
+    spreadsheet and the full header, pinned here rather than inherited from
+    HuntData (whose defaults follow a NEW hunt: files, compact).
 
     Extra attributes can be set via kwargs, e.g.::
 
@@ -205,6 +209,8 @@ def make_hunt(
     h.id = id
     h.google_sheet_id = google_sheet_id
     h.solved_sheet_id = solved_sheet_id
+    h.sheet_mode = sheet_mode
+    h.header_style = header_style
     for attr, val in kwargs.items():
         setattr(h, attr, val)
     return h

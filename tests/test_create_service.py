@@ -20,6 +20,7 @@ def _svc_hunt():
     h.id = 10
     h.google_sheet_id = "S1"
     h.solved_sheet_id = "A1"
+    h.sheet_mode = "tabs"
     h.url = None
     h.category_id = 1
     h.name = "H"

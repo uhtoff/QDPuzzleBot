@@ -6,7 +6,7 @@ from bot.store.puzzle_data import AdditionalSheetData, PuzzleData
 
 def test_hunt_without_the_new_keys_gets_defaults():
     hunt = HuntData.import_dict({"id": 3, "name": "Big Hunt"})
-    assert (hunt.sheet_mode, hunt.drive_folder_id, hunt.solved_folder_id) == ("tabs", "", "")
+    assert (hunt.sheet_mode, hunt.drive_folder_id, hunt.solved_folder_id) == ("files", "", "")
 
 
 def test_hunt_new_keys_round_trip():
@@ -23,3 +23,9 @@ def test_puzzle_google_sheet_id_default_and_round_trip():
 
 def test_additional_sheet_has_google_sheet_id_default_empty():
     assert AdditionalSheetData().google_sheet_id == ""
+
+
+def test_hunt_defaults_match_a_new_hunts():
+    """The dataclass fallbacks follow what create_hunt gives a new hunt."""
+    from bot.core.constants import DEFAULT_HEADER_STYLE
+    assert (HuntData().sheet_mode, HuntData().header_style) == ("files", DEFAULT_HEADER_STYLE)

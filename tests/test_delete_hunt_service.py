@@ -31,6 +31,7 @@ def _delete_hunt_obj():
     h.channel_id = 60
     h.google_sheet_id = "SHEET_ID"
     h.solved_sheet_id = "ARCH_ID"
+    h.sheet_mode = "tabs"
     return h
 
 
