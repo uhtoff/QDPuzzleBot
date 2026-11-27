@@ -4,6 +4,7 @@ A webhook bypasses Discord's own permission checks, so callers must enforce the
 member's channel permissions themselves before calling `send_as`.
 """
 import asyncio
+import io
 
 import discord
 
@@ -48,16 +49,25 @@ async def relay_webhook(channel) -> discord.Webhook:
         return hook
 
 
-async def send_as(channel, member, content: str) -> int:
+async def send_as(channel, member, content: str,
+                  file_bytes: bytes | None = None,
+                  filename: str | None = None) -> int:
     """Send `content` (already validated) under the member's name and avatar;
-    returns the new message id. Mentions are suppressed."""
+    returns the new message id. Mentions are suppressed.
+
+    With `file_bytes`, the file is attached. A sent `discord.File` is consumed,
+    so a fresh one is built inside every attempt (the NotFound retry included)."""
     async def _send(hook):
+        kwargs = {}
+        if file_bytes is not None:
+            kwargs["file"] = discord.File(io.BytesIO(file_bytes), filename=filename)
         return await hook.send(
             content,
             username=member.display_name,
             avatar_url=member.display_avatar.url,
             allowed_mentions=discord.AllowedMentions.none(),
             wait=True,
+            **kwargs,
         )
 
     hook = await relay_webhook(channel)

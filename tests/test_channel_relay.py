@@ -111,3 +111,41 @@ def test_is_relay_webhook_knows_cached_ids_only():
     assert channel_relay.is_relay_webhook(5)
     assert not channel_relay.is_relay_webhook(6)
     assert not channel_relay.is_relay_webhook(None)
+
+
+@pytest.mark.asyncio
+async def test_send_as_attaches_file():
+    ours = _hook("Puzzbot relay", BOT_ID)
+    ours.send.return_value = SimpleNamespace(id=1)
+    ch = _channel([ours])
+    member = SimpleNamespace(display_name="A", display_avatar=SimpleNamespace(url="u"))
+    await channel_relay.send_as(ch, member, "x", b"PNGDATA", "a-markup.png")
+    f = ours.send.await_args.kwargs["file"]
+    assert isinstance(f, discord.File)
+    assert f.filename == "a-markup.png"
+    assert f.fp.read() == b"PNGDATA"
+
+
+@pytest.mark.asyncio
+async def test_send_as_without_file_sends_no_file_kwarg():
+    ours = _hook("Puzzbot relay", BOT_ID)
+    ours.send.return_value = SimpleNamespace(id=1)
+    member = SimpleNamespace(display_name="A", display_avatar=SimpleNamespace(url="u"))
+    await channel_relay.send_as(_channel([ours]), member, "x")
+    assert "file" not in ours.send.await_args.kwargs
+
+
+@pytest.mark.asyncio
+async def test_send_as_retry_builds_a_fresh_file():
+    stale = _hook("Puzzbot relay", BOT_ID)
+    stale.send.side_effect = discord.NotFound(MagicMock(status=404), "Unknown Webhook")
+    ch = _channel([stale])
+    fresh = ch.create_webhook.return_value
+    fresh.send.return_value = SimpleNamespace(id=7)
+    ch.webhooks.side_effect = [[stale], []]
+    member = SimpleNamespace(display_name="A", display_avatar=SimpleNamespace(url="u"))
+    await channel_relay.send_as(ch, member, "x", b"BYTES", "f.png")
+    first = stale.send.await_args.kwargs["file"]
+    second = fresh.send.await_args.kwargs["file"]
+    assert first is not second
+    assert second.fp.read() == b"BYTES"

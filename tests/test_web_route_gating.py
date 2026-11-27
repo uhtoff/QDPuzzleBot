@@ -126,6 +126,9 @@ UNGATED_BY_DECISION = [
     # timed out), because the webhook bypasses Discord's own checks. Pinned by
     # tests/test_channel_reply_web.py.
     ("POST", "/channels/<int:channel_id>/messages"),
+    # Same per-request gate as the chat reply above (shared _member_channel_gate),
+    # plus the media must really sit on the named puzzle/evidence of its own hunt.
+    ("POST", "/media/<int:media_id>/post"),
     # Extension unread list: a READ despite the method (the read markers can outgrow
     # a query string). Gated by hunt visibility only, like GET /hunts/<uid>/puzzles.
     # Pinned by tests/test_unread_route.py.
