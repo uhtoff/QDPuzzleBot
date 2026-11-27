@@ -20,7 +20,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { notifications } from "@mantine/notifications";
 import { IconArrowLeft, IconBrowserX } from "@tabler/icons-react";
 import { useEvidence, useHunt } from "../api";
-import { closeSolved, extensionSupports } from "../lib/extension";
+import { boardLinkFromMessage, closeSolved, extensionSupports } from "../lib/extension";
 import { boardViews, type BoardView } from "../lib/boardViews";
 import { boardGroupRows, filterActive, type PuzzleFilter } from "../lib/puzzleFilter";
 import { PuzzleFilterBar } from "../components/PuzzleFilterBar";
@@ -339,6 +339,23 @@ export default function HuntBoard() {
     }
     setSearchParams({}, { replace: true });
   }, [rawData, allPuzzles, searchParams, setSearchParams, evidence, evidencePending]);
+
+  // A board link the extension folded in from a duplicate tab arrives as a message: apply
+  // it as this tab's query, without reloading, and the deep-link effect above handles it.
+  // The attribute tells the extension this board can take one (else it navigates the tab).
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.puzzbotLinks = "1";
+    const onMessage = (e: MessageEvent) => {
+      const search = boardLinkFromMessage(e, window, window.location.origin);
+      if (search) setSearchParams(new URLSearchParams(search));
+    };
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      delete root.dataset.puzzbotLinks;
+    };
+  }, [setSearchParams]);
 
   const openNotes = useCallback((p: Puzzle) => setNotesPuzzleId(p.id), []);
   const openChat = useCallback((p: Puzzle) => setChatPuzzleId(p.id), []);

@@ -78,3 +78,18 @@ export function openPageViaExtension(
   send("openPage", { sheetUrl, puzzleUrl });
   return true;
 }
+
+/** A board link the extension handed over from a duplicate tab (its content script posts
+ *  it to this window): the query string to apply, or null when the message is not one. */
+export function boardLinkFromMessage(
+  event: { source: unknown; origin: string; data: unknown },
+  win: unknown,
+  origin: string,
+): string | null {
+  if (event.source !== win || event.origin !== origin) return null;
+  const data = event.data as { source?: unknown; action?: unknown; search?: unknown } | null;
+  if (!data || data.source !== "puzzbot-extension" || data.action !== "openBoardLink") return null;
+  const { search } = data;
+  if (typeof search !== "string" || search.length > 2000) return null;
+  return search === "" || search.startsWith("?") ? search : null;
+}
