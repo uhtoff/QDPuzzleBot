@@ -34,6 +34,7 @@ import { useOcrReplaceConfirm } from "../hooks/useOcrReplaceConfirm";
 import { useLingering } from "../hooks/useLingering";
 import { ConfirmModal } from "./ConfirmModal";
 import { MarkupModal } from "./MarkupModal";
+import { postDestination } from "../lib/postToDiscord";
 import { DiscordMarkdown } from "./DiscordMarkdown";
 
 interface Props {
@@ -419,6 +420,10 @@ export function EvidencePanel({ uid, detail }: Props) {
         mediaId={markupItem?.media_id ?? null}
         alt={markupItem?.note ?? "Evidence image"}
         onClose={() => setMarkupItem(null)}
+        postTarget={markupItem ? { kind: "evidence", evidenceId: markupItem.id } : undefined}
+        postDestination={markupItem
+          ? postDestination({ kind: "evidence", evidenceId: markupItem.id }, markupItem.source_puzzle_id != null)
+          : undefined}
       />
     </Stack>
   );

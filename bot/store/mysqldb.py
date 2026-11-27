@@ -1417,6 +1417,14 @@ class MySQLEvidenceDb(_MySQLBaseDb):
         rows = self._fetch_all(sql, params)
         return [EvidenceData.import_dict(r) for r in rows]
 
+    def get_image_evidence_for_puzzle(self, source_puzzle_id: int):
+        """Evidence items with an image whose source is this puzzle, oldest first."""
+        rows = self._fetch_all(
+            "SELECT * FROM evidence_items WHERE source_puzzle_id = %s"
+            " AND media_id IS NOT NULL ORDER BY created_at ASC, id ASC",
+            (source_puzzle_id,))
+        return [EvidenceData.import_dict(r) for r in rows]
+
     def get_by_id(self, item_id: int):
         """Return one EvidenceData by id, or None if missing."""
         row = self._fetch_one("SELECT * FROM evidence_items WHERE id = %s", (item_id,))
@@ -1782,6 +1790,14 @@ class MySQLPuzzleImageDb(_MySQLBaseDb):
             f"WHERE id IN ({placeholders})",
             tuple(params),
         )
+
+    def puzzle_ids_for_canvas(self, canvas_id: int) -> list:
+        """Ids of puzzles holding a region-sourced image from this canvas."""
+        rows = self._fetch_all(
+            "SELECT DISTINCT pi.puzzle_id FROM puzzle_images pi"
+            " JOIN canvas_regions r ON r.id = pi.source_region_id"
+            " WHERE r.canvas_id = %s", (canvas_id,))
+        return [r["puzzle_id"] for r in rows]
 
     def delete_by_region(self, region_id: int) -> None:
         self._exec(

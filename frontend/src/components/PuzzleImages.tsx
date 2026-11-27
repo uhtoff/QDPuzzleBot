@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -23,16 +23,21 @@ import {
   Text,
   UnstyledButton,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import { IconPlus, IconTrash, IconVectorTriangle } from "@tabler/icons-react";
-import type { PuzzleImage } from "../types";
+import type { EvidenceItem, PostTarget, PuzzleImage } from "../types";
+import { postDestination } from "../lib/postToDiscord";
 import {
   useAttachPuzzleImage,
+  useDeleteEvidence,
+  useEvidence,
   useDetachPuzzleImage,
   usePuzzleImages,
   useReorderPuzzleImages,
   useUploadMedia,
 } from "../api";
 import { imageFromClipboard, isTextEntryTarget, notifyError } from "../util";
+import { ARCHIVED_NOTICE, resolveDeepLink, stripItems } from "../lib/stripItems";
 import { ConfirmModal } from "./ConfirmModal";
 import { MarkupModal } from "./MarkupModal";
 
@@ -41,6 +46,62 @@ interface Props {
   puzzleName: string;
   uid: string;
   editable: boolean;
+  /** Deep link: open this media's editor once the strip has loaded. */
+  openMediaId?: number | null;
+  /** Called once the deep link has been acted on (opened, or reported gone). */
+  onOpened?: () => void;
+}
+
+/** An evidence thumbnail: a source-evidence image pinned to this puzzle. Not
+ *  sortable and deliberately outside the SortableContext. */
+function EvidenceThumb({
+  item,
+  editable,
+  onOpen,
+  onRemove,
+}: {
+  item: EvidenceItem;
+  editable: boolean;
+  onOpen: (item: EvidenceItem) => void;
+  onRemove: (item: EvidenceItem) => void;
+}) {
+  const thumb = (
+    <Image src={item.media_url ?? undefined} alt={item.note} h={64} w={64} fit="cover" radius="sm" />
+  );
+  return (
+    <Box style={{ position: "relative" }} title={item.note || undefined}>
+      {editable ? (
+        <UnstyledButton onClick={() => onOpen(item)} title={item.note || "Mark up"}>
+          {thumb}
+        </UnstyledButton>
+      ) : (
+        <Anchor href={item.media_url ?? undefined} target="_blank" rel="noreferrer">
+          {thumb}
+        </Anchor>
+      )}
+      <Badge
+        size="xs"
+        variant="filled"
+        color="teal"
+        style={{ position: "absolute", bottom: 2, left: 2, padding: "0 4px" }}
+      >
+        Evidence
+      </Badge>
+      {editable && (
+        <ActionIcon
+          size="xs"
+          variant="filled"
+          color="red"
+          radius="xl"
+          style={{ position: "absolute", top: -4, right: -4 }}
+          onClick={() => onRemove(item)}
+          aria-label="Delete evidence"
+        >
+          <IconTrash size={10} />
+        </ActionIcon>
+      )}
+    </Box>
+  );
 }
 
 /** One draggable/sortable thumbnail. dnd-kit's sortable strategy needs each
@@ -121,15 +182,59 @@ function SortableThumb({
 /** Horizontal strip of a puzzle's images: fetched on its own (not folded into
  *  the board payload, which every client gets pushed over the WS for every
  *  puzzle). Click opens MarkupModal; drag reorders; FileButton adds one. */
-export function PuzzleImages({ puzzleId, puzzleName, uid, editable }: Props) {
-  const { data: images = [], isLoading } = usePuzzleImages(puzzleId);
+export function PuzzleImages({ puzzleId, puzzleName, uid, editable, openMediaId = null, onOpened }: Props) {
+  const { data: images = [], isLoading, isError: imagesError } = usePuzzleImages(puzzleId);
   const uploadMedia = useUploadMedia(uid);
   const attach = useAttachPuzzleImage(puzzleId);
   const reorder = useReorderPuzzleImages(puzzleId);
   const detach = useDetachPuzzleImage(puzzleId);
 
-  const [markupImage, setMarkupImage] = useState<PuzzleImage | null>(null);
+  const { data: evidence = [], isLoading: evidenceLoading, isError: evidenceError } = useEvidence(uid);
+  const deleteEvidence = useDeleteEvidence(uid);
+
+  // Media id being edited; own images and evidence both open the same editor.
+  const [markupMediaId, setMarkupMediaId] = useState<number | null>(null);
+  const [evidenceTarget, setEvidenceTarget] = useState<EvidenceItem | null>(null);
   const [removeTarget, setRemoveTarget] = useState<PuzzleImage | null>(null);
+
+  const evidenceItems = useMemo(
+    () =>
+      stripItems(images, evidence, puzzleId).flatMap((i) => (i.kind === "evidence" ? [i.item] : [])),
+    [images, evidence, puzzleId],
+  );
+
+  /** What the open editor posts as, derived from which strip item owns the
+   *  media — so a deep-linked open gets it too. */
+  let postTarget: PostTarget | undefined;
+  if (markupMediaId != null) {
+    if (images.some((i) => i.media_id === markupMediaId)) {
+      postTarget = { kind: "puzzle_image", puzzleId };
+    } else {
+      const ev = evidenceItems.find((e) => e.media_id === markupMediaId);
+      if (ev) postTarget = { kind: "evidence", evidenceId: ev.id };
+    }
+  }
+
+  // Deep link: act once both lists have loaded, then tell the parent it is done.
+  useEffect(() => {
+    if (openMediaId == null || isLoading || evidenceLoading) return;
+    // A failed query would make a real image look gone; skip rather than lie.
+    if (imagesError || evidenceError) {
+      onOpened?.();
+      return;
+    }
+    const r = resolveDeepLink(
+      { puzzleId, mediaId: openMediaId },
+      [{ id: puzzleId }],
+      stripItems(images, evidence, puzzleId),
+    );
+    if (r.notice) notifications.show({ message: r.notice, color: "yellow" });
+    else if (r.mediaId != null) {
+      if (editable) setMarkupMediaId(r.mediaId);
+      else notifications.show({ message: ARCHIVED_NOTICE, color: "yellow" });
+    }
+    onOpened?.();
+  }, [openMediaId, isLoading, evidenceLoading, imagesError, evidenceError, images, evidence, puzzleId, editable, onOpened]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -189,7 +294,7 @@ export function PuzzleImages({ puzzleId, puzzleName, uid, editable }: Props) {
 
   return (
     <Box>
-      {images.length === 0 && !editable ? null : (
+      {images.length === 0 && evidenceItems.length === 0 && !editable ? null : (
         <Group gap="xs" wrap="wrap" align="flex-start">
           {images.length > 0 && (
             <DndContext sensors={sensors} onDragEnd={onDragEnd}>
@@ -203,7 +308,7 @@ export function PuzzleImages({ puzzleId, puzzleName, uid, editable }: Props) {
                       key={image.id}
                       image={image}
                       editable={editable}
-                      onOpen={setMarkupImage}
+                      onOpen={(img) => setMarkupMediaId(img.media_id)}
                       onRemove={setRemoveTarget}
                     />
                   ))}
@@ -211,6 +316,15 @@ export function PuzzleImages({ puzzleId, puzzleName, uid, editable }: Props) {
               </SortableContext>
             </DndContext>
           )}
+          {evidenceItems.map((item) => (
+            <EvidenceThumb
+              key={`ev-${item.id}`}
+              item={item}
+              editable={editable}
+              onOpen={(e) => setMarkupMediaId(e.media_id)}
+              onRemove={setEvidenceTarget}
+            />
+          ))}
           {editable && (
             <FileButton onChange={onAddImage} accept="image/png,image/jpeg,image/gif,image/webp">
               {(props) => (
@@ -231,9 +345,24 @@ export function PuzzleImages({ puzzleId, puzzleName, uid, editable }: Props) {
       )}
 
       <MarkupModal
-        mediaId={markupImage?.media_id ?? null}
+        mediaId={markupMediaId}
         alt={puzzleName}
-        onClose={() => setMarkupImage(null)}
+        onClose={() => setMarkupMediaId(null)}
+        postTarget={postTarget}
+        postDestination={postTarget ? postDestination(postTarget, true) : undefined}
+      />
+
+      <ConfirmModal
+        opened={evidenceTarget != null}
+        onClose={() => setEvidenceTarget(null)}
+        onConfirm={() => {
+          if (evidenceTarget) deleteEvidence.mutate(evidenceTarget.id, { onError: notifyError });
+          setEvidenceTarget(null);
+        }}
+        title="Delete evidence"
+        message={`Delete this evidence? It will also disappear from ${evidenceTarget?.target_puzzle_name ?? "the target puzzle"}'s roll-up.`}
+        confirmLabel="Delete"
+        confirmColor="red"
       />
 
       <ConfirmModal

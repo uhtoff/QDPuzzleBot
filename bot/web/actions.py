@@ -199,6 +199,29 @@ async def _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle):
         await cog.web_refresh_info(guild, hunt_obj, parent)
 
 
+async def refresh_pins_for_puzzles(hunt_id, guild_snowflake, puzzle_ids):
+    """Best-effort refresh of each puzzle's pinned info message (its Images
+    list) after a change to the puzzle's own images or its source evidence
+    images. Call AFTER the DB write. Never raises: the write already happened,
+    so a Discord or lookup failure here must not fail the request."""
+    ids = list(dict.fromkeys(i for i in puzzle_ids if i))
+    if not ids:
+        return
+    try:
+        from bot.store import HuntJsonDb, PuzzleJsonDb
+        cog = puzzles_cog()
+        hunt_obj = HuntJsonDb.get_by_attr(id=hunt_id)
+        if cog is None or hunt_obj is None:
+            return
+        guild = bot_app().bot.get_guild(int(guild_snowflake)) if guild_snowflake else None
+        for pid in ids:
+            puzzle = PuzzleJsonDb.get_by_attr(id=pid)
+            if puzzle is not None:
+                await cog.web_refresh_info(guild, hunt_obj, puzzle)
+    except Exception:
+        logger.exception("could not refresh pinned images for puzzles %s", ids)
+
+
 async def _resolve_visible_hunt(lookup_coro, not_found_key):
     """Shared core: await lookup_coro, check visibility, return (context, None) or (None, err).
 
@@ -3126,6 +3149,13 @@ async def update_evidence(item_id):
     # payload, so a second one is one more cache invalidation of the same keys,
     # which react-query collapses into the refetch already in flight.
     _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+    # The source puzzle's pin lists its source evidence images (label = note),
+    # so an image swap or a note edit on an item that has/had an image changes
+    # it. A target-only change does not: the pin follows the SOURCE.
+    if (item.source_puzzle_id and (old.media_id or item.media_id)
+            and ("media_id" in body or note)):
+        await refresh_pins_for_puzzles(old.hunt_id, ctx["guild_snowflake"],
+                                       [item.source_puzzle_id])
     await _audit("update_evidence", puzzle_id=item.source_puzzle_id, hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"id": item.id, "target_puzzle_id": item.target_puzzle_id,
                     "note": item.note, "media_id": item.media_id})
@@ -3166,6 +3196,9 @@ async def delete_evidence(item_id):
     # decorated service call at all, so without this the row vanishes from the
     # DB and stays on every open Evidence panel.
     _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+    if old.media_id and old.source_puzzle_id:
+        await refresh_pins_for_puzzles(old.hunt_id, ctx["guild_snowflake"],
+                                       [old.source_puzzle_id])
     await _audit("delete_evidence", hunt_uid=hunt_obj.uid)
     return jsonify({"ok": True})
 
@@ -3394,14 +3427,18 @@ async def delete_canvas(canvas_id):
     import shutil
     from bot.core.image_tiler import tiles_relpath
     from bot.core.message_media import media_root
-    from bot.store import CanvasJsonDb, MediaJsonDb
+    from bot.store import CanvasJsonDb, MediaJsonDb, PuzzleImageJsonDb
     ctx, canvas_row, err = await _canvas_ctx(canvas_id, require_manage=True)
     if err:
         return err
     assert ctx is not None and canvas_row is not None
     media = MediaJsonDb.get_by_id(canvas_row.media_id)
+    # The cascade below drops region-sourced puzzle_images rows, so collect the
+    # affected puzzles first; their pins are refreshed once the delete commits.
+    pin_puzzle_ids = PuzzleImageJsonDb.puzzle_ids_for_canvas(canvas_id)
     # Regions and their evidence rows go by FK cascade from hunt_canvases.
     CanvasJsonDb.delete(canvas_id)
+    await refresh_pins_for_puzzles(ctx["hunt"]["id"], ctx["guild_snowflake"], pin_puzzle_ids)
     if media is not None:
         tiles = media_root() / tiles_relpath(media.hunt_id, media.id)
         # Best effort: a failure here leaks disk, which is far better than
@@ -3500,6 +3537,11 @@ async def create_region(canvas_id):
     except (ShapeRejected, canvas_service.RegionRejected) as exc:
         return jsonify({"error": str(exc)}), 400
     _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+    # Only a locates link adds a puzzle_images row; an informs region's
+    # evidence has no source puzzle, so it never reaches a pin.
+    await refresh_pins_for_puzzles(
+        ctx["hunt"]["id"], ctx["guild_snowflake"],
+        [puzzle_id] if role == canvas_service.LOCATES else [])
     await _audit("create_region", hunt_uid=ctx["hunt"]["uid"])
     return jsonify(web_data.region_to_json(region)), 201
 
@@ -3550,6 +3592,12 @@ async def update_region(canvas_id, region_id):
     except (ShapeRejected, canvas_service.RegionRejected) as exc:
         return jsonify({"error": str(exc)}), 400
     _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+    if link_changed:
+        # Old puzzle may lose its locates image, the new one may gain one.
+        await refresh_pins_for_puzzles(
+            ctx["hunt"]["id"], ctx["guild_snowflake"],
+            [existing.puzzle_id if existing.role == canvas_service.LOCATES else None,
+             puzzle_id if role == canvas_service.LOCATES else None])
     await _audit("update_region", hunt_uid=ctx["hunt"]["uid"])
     assert region is not None
     return jsonify(web_data.region_to_json(region))
@@ -3570,6 +3618,9 @@ async def delete_region(canvas_id, region_id):
         return jsonify({"error": "region_not_found"}), 404
     canvas_service.delete_region(region_id)
     _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+    if existing.role == canvas_service.LOCATES:
+        await refresh_pins_for_puzzles(ctx["hunt"]["id"], ctx["guild_snowflake"],
+                                       [existing.puzzle_id])
     await _audit("delete_region", hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"ok": True})
 
@@ -3686,6 +3737,7 @@ async def add_puzzle_image(puzzle_id):
 
     image = puzzle_images.attach_upload(puzzle_id, media_id)
     _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+    await refresh_pins_for_puzzles(puzzle.hunt_id, ctx["guild_snowflake"], [puzzle_id])
     await _audit("add_puzzle_image", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"])
     return jsonify(web_data.puzzle_image_to_json(image)), 201
 
@@ -3712,6 +3764,7 @@ async def reorder_puzzle_images(puzzle_id):
         return jsonify({"error": str(exc)}), 400
 
     _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+    await refresh_pins_for_puzzles(ctx["hunt"]["id"], ctx["guild_snowflake"], [puzzle_id])
     await _audit("reorder_puzzle_images", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"ok": True})
 
@@ -3732,6 +3785,7 @@ async def delete_puzzle_image(puzzle_id, image_id):
         return jsonify({"error": str(exc)}), 404
 
     _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+    await refresh_pins_for_puzzles(ctx["hunt"]["id"], ctx["guild_snowflake"], [puzzle_id])
     await _audit("delete_puzzle_image", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"ok": True})
 
@@ -3824,6 +3878,8 @@ async def create_puzzle_from_region(canvas_id, region_id):
         return jsonify({"error": str(exc)}), 400
 
     _notify_board(hunt_obj.uid, ctx["guild_snowflake"])
+    if role == canvas_service.LOCATES:
+        await refresh_pins_for_puzzles(hunt_obj.id, ctx["guild_snowflake"], [puzzle.id])
     await _audit("create_puzzle_from_region", puzzle_id=puzzle.id,
                  hunt_uid=hunt_obj.uid, detail=name)
     asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))

@@ -17,6 +17,7 @@ import { panelWindow } from "./lib/panelWindow.js";
 import { groupMove } from "./lib/groupMove.js";
 import { pickColour, findRoundGroup, findPuzzleGroup } from "./lib/groupColour.js";
 import { needsSocket } from "./lib/connection.js";
+import { boardReuseTarget, createArrivals, handOverBoardLink } from "./lib/boardReuse.js";
 import { createPanelHost } from "./lib/panelHost.js";
 import { apiGet, apiSend, getOrigin } from "./api.js";
 
@@ -764,7 +765,37 @@ async function focusTab(tab) {
   await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
 }
 
+// A board link for a hunt whose board is already open: hand it to that tab, close this one.
+// New tabs not yet on a real page (in memory: a worker restart forgets them, so nothing is folded).
+const arrivals = createArrivals();
+chrome.runtime.onStartup.addListener(() => arrivals.quietUntil(Date.now() + 15000));
+
+async function maybeReuseBoard(tabId) {
+  const origin = await getOrigin();
+  const tabs = await chrome.tabs.query({}).catch(() => []);
+  const newTab = tabs.find((t) => t.id === tabId);
+  if (!newTab?.url) return;
+  const targetId = boardReuseTarget({ newTab, tabs, origin });
+  if (targetId === null || !(await chrome.tabs.get(targetId).catch(() => null))) return;
+  await handOverBoardLink({
+    targetId,
+    newTabId: tabId,
+    url: newTab.url,
+    api: {
+      sendMessage: (id, msg) => chrome.tabs.sendMessage(id, msg),
+      update: (id, props) => chrome.tabs.update(id, props),
+      focus: (id) => chrome.tabs.get(id).then(focusTab),
+      remove: (id) => chrome.tabs.remove(id),
+    },
+  });
+}
+const queueBoardReuse = (tabId) => {
+  reuseChain = reuseChain.then(() => maybeReuseBoard(tabId)).catch(() => {});
+};
+
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  // Before any await, so the first page is claimed in event order.
+  if (info.url && arrivals.arrived(tabId, info.url, Date.now())) queueBoardReuse(tabId);
   if (!(info.url || info.status === "complete")) return;
   (async () => {
     await ready;
@@ -779,6 +810,7 @@ chrome.tabs.onAttached.addListener(async (tabId, { newWindowId }) => {
   if (registry.setWindow(tabId, newWindowId)) persist();
 });
 chrome.tabs.onCreated.addListener(async (tab) => {
+  arrivals.created(tab.id, Date.now());
   await ready;
   if (registry.setWindow(tab.id, tab.windowId)) persist();
 });
@@ -792,6 +824,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
 });
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   lookupGen.drop(tabId); // synchronous: before any in-flight lookup can resolve
+  arrivals.removed(tabId);
   await ready;
   registry.delete(tabId);
   pageTabs.remove(tabId);

@@ -26,6 +26,7 @@ from bot.utils.components import (
     build_plain_messages, build_sectioned_views, send_plain, send_views,
 )
 from bot.utils.text import flush_left
+from bot.core.pin_images import images_field_value, pin_images_for
 from bot.core.constants import (DEFAULT_HEADER_STYLE, HEADER_FULL, HEADER_STYLES,
                                 HEADER_STYLE_LABELS, ADMIN_ROLES, ORGANISER_ROLES, ORGANISER_ROLE_NAMES, STATUSES, PRIORITIES, format_status, format_priority)
 from bot.core import hub_channel, role_gate, template_link
@@ -2097,6 +2098,9 @@ class Puzzles(commands.Cog):
         asyncio.create_task(self.service.refresh_evidence_safe(hunt))
         if puzzle is not None:
             asyncio.create_task(self.service.refresh_informs_targets(hunt, puzzle))
+            if media_id is not None:
+                # The pin lists the puzzle's source evidence images.
+                await self.web_refresh_info(ctx.guild, hunt, puzzle)
         where = f" from **{puzzle.name}**" if puzzle is not None else ""
         what = "Clue" if media_id is None else "Clue with image"
         await ctx.send(f":pencil: {what} logged{where}.")
@@ -3492,8 +3496,8 @@ class Puzzles(commands.Cog):
             inline=False,
         )
 
-    def _build_embed_list(self, ctx=None, embed: Optional[discord.Embed] = None, puzzle: Optional[PuzzleData] = None, hunt: Optional[HuntData] = None):
-        """Wrap the main embed plus an optional additional-sheets embed in a list."""
+    def _build_embed_list(self, ctx=None, embed: Optional[discord.Embed] = None, puzzle: Optional[PuzzleData] = None, hunt: Optional[HuntData] = None, guild_data: Optional[GuildSettings] = None):
+        """Wrap the main embed plus optional sheets, images and minis embeds in a list."""
         assert embed is not None and puzzle is not None  # callers always pass both; defaults are keyword-style only
         embed_list = [embed]
         if len(puzzle.additional_sheets) > 0:
@@ -3504,10 +3508,43 @@ class Puzzles(commands.Cog):
                 inline=False,
             )
             embed_list.append(sheets_embed)
+        sheets_count = len(embed_list)
         minis = self.service.get_minis(puzzle.id)
         if minis:
             embed_list.append(self._build_mini_list_embed(puzzle, minis, hunt))
+        images_embed = self._build_images_embed(ctx, embed_list, puzzle, hunt, guild_data)
+        if images_embed is not None:
+            embed_list.insert(sheets_count, images_embed)
         return embed_list
+
+    def _build_images_embed(self, ctx, embed_list, puzzle: PuzzleData, hunt: Optional[HuntData],
+                            guild_data: Optional[GuildSettings]) -> Optional[discord.Embed]:
+        """Embed listing links to the puzzle's images, sized to the room left in
+        the message's 6000-char embed budget; None if there is nothing to show."""
+        if hunt is None:
+            return None
+        if guild_data is None and ctx is not None:
+            guild_data = self.get_guild_data(ctx)
+        base = (getattr(guild_data, "website_url", "") or "").rstrip("/")
+        if not base:
+            return None
+        other = sum(len(e) for e in embed_list)
+        budget = min(1024, 6000 - other - len("Images") - 50)
+        # A mini puzzle is not in the board's puzzle list, so its links use the
+        # image-only form (?puzzle=<mini> would say the puzzle no longer exists).
+        link_puzzle_id = None if puzzle.parent_puzzle_id is not None else puzzle.id
+        try:
+            value = images_field_value(
+                pin_images_for(puzzle.id), base, hunt.uid or str(hunt.id), link_puzzle_id, budget)
+        except Exception:
+            # Optional extra: never let it stop a welcome/pin message.
+            logger.exception("images field failed for puzzle %s", puzzle.id)
+            return None
+        if not value:
+            return None
+        images_embed = discord.Embed()
+        images_embed.add_field(name="Images", value=value, inline=False)
+        return images_embed
 
     def _build_mini_list_embed(
         self,
@@ -3619,7 +3656,7 @@ class Puzzles(commands.Cog):
         self._add_metapuzzle_command_fields(embed)
         self._add_puzzle_links_field(ctx, embed, puzzle, hunt, kwargs.get('guild_data'))
         self._add_puzzle_status_fields(embed, puzzle)
-        embed_list = self._build_embed_list(ctx=ctx, embed=embed, puzzle=puzzle, hunt=hunt)
+        embed_list = self._build_embed_list(ctx=ctx, embed=embed, puzzle=puzzle, hunt=hunt, guild_data=kwargs.get('guild_data'))
 
         if kwargs.get("update", False):
             return await self._refresh_pinned_info(channel, embeds=embed_list)
@@ -3696,7 +3733,7 @@ class Puzzles(commands.Cog):
         self._add_puzzle_links_field(ctx, embed, puzzle, hunt, kwargs.get('guild_data'))
         self._add_puzzle_status_fields(embed, puzzle)
 
-        embed_list = self._build_embed_list(ctx=ctx, embed=embed, puzzle=puzzle, hunt=hunt)
+        embed_list = self._build_embed_list(ctx=ctx, embed=embed, puzzle=puzzle, hunt=hunt, guild_data=kwargs.get('guild_data'))
 
         if kwargs.get("update",False):
             return await self._refresh_pinned_info(channel, embeds=embed_list)

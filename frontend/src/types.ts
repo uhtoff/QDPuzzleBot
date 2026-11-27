@@ -316,6 +316,12 @@ export interface MarkStyle {
   arrow: boolean;
 }
 
+/** What a mark-up editor's "Post to Discord" posts into: an own puzzle image
+ *  (goes to that puzzle's channel) or an evidence item (its source's channel). */
+export type PostTarget =
+  | { kind: "puzzle_image"; puzzleId: number }
+  | { kind: "evidence"; evidenceId: number };
+
 /** One purely-visual mark on an image. Coordinates are normalised 0-1, so the
  *  SVG overlay uses them directly at any zoom. */
 export interface MediaMark {

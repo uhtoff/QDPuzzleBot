@@ -3,6 +3,7 @@ import asyncio
 import logging
 import re
 import time
+from typing import Any
 from types import SimpleNamespace
 
 import discord
@@ -324,6 +325,53 @@ async def channel_messages(channel_id):
     return jsonify({"messages": messages})
 
 
+async def _member_channel_gate(user, channel_id: int, hunt, *,
+                               allow_thread: bool = False,
+                               require_attach: bool = False) -> tuple[Any, Any]:
+    """The Discord-side gate for posting into a channel as `user`.
+
+    Returns (channel, member) when the member may post there, else a ready
+    (response, status) pair. A relay webhook ignores Discord permissions, so
+    the guild/channel/member lookup, the timeout and view_channel +
+    send_messages are all enforced here. Shared by every route that posts
+    on a member's behalf.
+
+    With `allow_thread`, `channel_id` may name a thread (a mini puzzle's
+    channel): it is resolved with get_channel_or_thread and gated as Discord
+    gates a thread — view_channel plus send_messages_in_threads, both from
+    Thread.permissions_for (the parent's permissions, adjusted). A locked
+    thread also needs manage_threads, as in Discord.
+
+    With `require_attach` (a post carrying a file), attach_files is needed too."""
+    guilds_map = await data.get_guilds_map()
+    snowflake = guilds_map.get(hunt["guild_id"], {}).get("guild_snowflake")
+    guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
+    if guild is None:
+        channel = None
+    elif allow_thread:
+        channel = guild.get_channel_or_thread(channel_id)
+    else:
+        channel = guild.get_channel(channel_id)
+    member = await get_or_fetch_member(guild, int(user["id"])) if channel is not None else None
+    if guild is None or channel is None or member is None:
+        return jsonify({"error": "not_found_or_forbidden"}), 404
+
+    is_thread = isinstance(channel, discord.Thread)
+    try:
+        perms = channel.permissions_for(member)
+    except discord.ClientException:
+        # Thread.permissions_for raises when the parent channel is not cached.
+        return jsonify({"error": "not_found_or_forbidden"}), 404
+    can_send = perms.send_messages_in_threads if is_thread else perms.send_messages
+    if member.is_timed_out() or not (perms.view_channel and can_send):
+        return jsonify({"error": "forbidden"}), 403
+    if is_thread and channel.locked and not perms.manage_threads:
+        return jsonify({"error": "forbidden"}), 403
+    if require_attach and not perms.attach_files:
+        return jsonify({"error": "forbidden"}), 403
+    return channel, member
+
+
 @api_bp.route("/channels/<int:channel_id>/messages", methods=["POST"])
 @login_required
 async def post_channel_message(channel_id):
@@ -352,22 +400,151 @@ async def post_channel_message(channel_id):
     if hunt["archived"]:
         return jsonify({"error": "archived"}), 403
 
-    snowflake = guilds_map.get(hunt["guild_id"], {}).get("guild_snowflake")
-    guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
-    channel = guild.get_channel(channel_id) if guild is not None else None
-    member = await get_or_fetch_member(guild, int(user["id"])) if channel is not None else None
-    if guild is None or channel is None or member is None:
-        return jsonify({"error": "not_found_or_forbidden"}), 404
-
-    perms = channel.permissions_for(member)
-    if member.is_timed_out() or not (perms.view_channel and perms.send_messages):
-        return jsonify({"error": "forbidden"}), 403
+    gated = await _member_channel_gate(user, channel_id, hunt)
+    if isinstance(gated[1], int):
+        return gated
+    channel, member = gated
 
     try:
         message_id = await channel_relay.send_as(channel, member, content)
     except discord.HTTPException:
         logger.exception("relay send failed for channel %s", channel_id)
         return jsonify({"error": "send_failed"}), 502
+    return jsonify({"id": str(message_id)}), 201
+
+
+_POST_MAX_BYTES = 10 * 1024 * 1024
+_POST_EXT = {"image/png": "png", "image/jpeg": "jpg"}
+
+
+async def _post_target(hunt, media_id, form):
+    """Resolve and check (channel_id, puzzle_id, slug_name, link_puzzle_id)
+    for a media post. The client's ids are untrusted: every one must belong
+    to `hunt`, and the media must really be on the named puzzle/evidence.
+    Returns (None, (response, status)) on any mismatch.
+
+    link_puzzle_id is the dashboard link's puzzle param: None (the
+    image-only form) for a mini puzzle, which is not in the board's puzzle
+    list, so ?puzzle=<mini> would show "That puzzle no longer exists"."""
+    from bot.store import EvidenceJsonDb, PuzzleImageJsonDb, PuzzleJsonDb
+    bad = (None, (jsonify({"error": "not_on_puzzle"}), 404))
+    raw_p, raw_e = form.get("puzzle_id"), form.get("evidence_id")
+    if (raw_p is None) == (raw_e is None):
+        return None, (jsonify({"error": "bad_target"}), 400)
+    try:
+        target_id = int(raw_p if raw_p is not None else raw_e)
+    except ValueError:
+        return None, (jsonify({"error": "bad_target"}), 400)
+
+    def _own_puzzle(pid):
+        puzzle = PuzzleJsonDb.get_by_attr(id=pid)
+        return puzzle if puzzle is not None and puzzle.hunt_id == hunt["id"] else None
+
+    def _found(puzzle):
+        link_id = None if puzzle.parent_puzzle_id is not None else puzzle.id
+        return (puzzle.channel_id, puzzle.id, puzzle.name, link_id), None
+
+    if raw_p is not None:
+        puzzle = _own_puzzle(target_id)
+        if puzzle is None:
+            return bad
+        on_puzzle = {i.media_id for i in PuzzleImageJsonDb.get_by_puzzle(puzzle.id)}
+        on_puzzle |= {e.media_id for e in EvidenceJsonDb.get_image_evidence_for_puzzle(puzzle.id)}
+        if media_id not in on_puzzle:
+            return bad
+        return _found(puzzle)
+
+    evidence = EvidenceJsonDb.get_by_id(target_id)
+    if evidence is None or evidence.hunt_id != hunt["id"] or evidence.media_id != media_id:
+        return bad
+    if evidence.source_puzzle_id is None:
+        return (hunt["channel_id"], None, hunt["name"], None), None
+    puzzle = _own_puzzle(evidence.source_puzzle_id)
+    if puzzle is None:
+        return bad
+    return _found(puzzle)
+
+
+@api_bp.route("/media/<int:media_id>/post", methods=["POST"])
+@login_required
+async def post_media_to_channel(media_id):
+    """Post a marked-up snapshot of an image, plus a dashboard link, into the
+    puzzle's Discord channel as the logged-in member. Posts on the user's
+    behalf, so every gate of post_channel_message applies."""
+    from bot.core.media_store import MediaRejected, validate_image_bytes
+    from bot.store import HuntJsonDb, MediaJsonDb
+    from bot.utils import urls
+    from bot.web.actions import _audit
+    user = current_user()
+    assert user is not None
+    form = await request.form
+    files = await request.files
+    upload = files.get("file")
+    if upload is None:
+        return jsonify({"error": "file required"}), 400
+    if (form.get("puzzle_id") is None) == (form.get("evidence_id") is None):
+        return jsonify({"error": "bad_target"}), 400
+
+    media = MediaJsonDb.get_by_id(media_id)
+    hunt_row = HuntJsonDb.get_by_attr(id=media.hunt_id) if media is not None else None
+    if media is None or hunt_row is None:
+        # Same answer as a hidden hunt, so media ids cannot be probed.
+        return jsonify({"error": "not_found_or_forbidden"}), 404
+    hunt, guild_info = await _load_visible_hunt(hunt_row.uid)
+    if hunt is None:
+        return jsonify({"error": "not_found_or_forbidden"}), 404
+    assert isinstance(guild_info, dict)
+    if hunt["archived"]:
+        return jsonify({"error": "archived"}), 403
+
+    target, err = await _post_target(hunt, media_id, form)
+    if err is not None:
+        return err
+    assert target is not None
+    channel_id, target_puzzle_id, slug_name, link_puzzle_id = target
+    if not channel_id:
+        # hunts.channel_id / puzzles.channel_id can be unset: nowhere to post.
+        return jsonify({"error": "not_found_or_forbidden"}), 404
+
+    gated = await _member_channel_gate(user, int(channel_id), hunt, allow_thread=True,
+                                       require_attach=True)
+    if isinstance(gated[1], int):
+        return gated
+    channel, member = gated
+
+    raw = upload.read(_POST_MAX_BYTES + 1)
+    try:
+        if len(raw) > _POST_MAX_BYTES:
+            raise MediaRejected("too large")
+        content_type = validate_image_bytes(raw, enforce_size_limit=False)
+        if content_type not in _POST_EXT:
+            raise MediaRejected("not png/jpeg")
+    except MediaRejected:
+        return jsonify({"error": "bad_image"}), 400
+
+    text = (form.get("content") or "").strip()
+    if text.startswith("!"):
+        return jsonify({"error": "command"}), 400
+    # Room for the "\n\n[Open in dashboard](<link>)" suffix inside Discord's 2000.
+    # The angle brackets stop Discord unfurling the link into a site preview card.
+    if len(text) > 1500:
+        return jsonify({"error": "too_long"}), 400
+    link = urls.image_link(guild_info.get("website_url") or "", hunt["uid"],
+                           link_puzzle_id, media_id)
+    if link:
+        text = (text + "\n\n" if text else "") + f"[Open in dashboard](<{link}>)"
+    if len(text) > 2000:
+        return jsonify({"error": "too_long"}), 400
+
+    slug = urls.puzzle_url_slug(slug_name or "image", hunt.get("url_sep") or "-") or "image"
+    filename = f"{slug}-markup.{_POST_EXT[content_type]}"
+    try:
+        message_id = await channel_relay.send_as(channel, member, text, raw, filename)
+    except discord.HTTPException:
+        logger.exception("relay image post failed for media %s", media_id)
+        return jsonify({"error": "send_failed"}), 502
+    await _audit("post_image", puzzle_id=target_puzzle_id, hunt_uid=hunt["uid"],
+                 detail=f"media={media_id} channel={channel_id} message={message_id}")
     return jsonify({"id": str(message_id)}), 201
 
 
@@ -763,6 +940,7 @@ async def add_evidence():
     if hunt is None:
         assert isinstance(guild_or_status, int)  # the (None, status) branch
         return jsonify({"error": "hunt not found"}), guild_or_status
+    assert isinstance(guild_or_status, dict)  # the (hunt, guild_info) branch
     if hunt["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
     # At most one source. Both set is a client bug -- silently preferring one
@@ -814,6 +992,12 @@ async def add_evidence():
         asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
         if puzzle is not None:
             asyncio.create_task(cog.service.refresh_informs_targets(hunt_obj, puzzle))
+            if media_id is not None:
+                # The puzzle's pin lists its source evidence images. Imported
+                # locally: actions imports from this module's siblings.
+                from bot.web.actions import refresh_pins_for_puzzles
+                await refresh_pins_for_puzzles(
+                    hunt["id"], guild_or_status.get("guild_snowflake"), [puzzle.id])
         # This route replaces the actions blueprint's /clues endpoint as the
         # dashboard's clue-logging path (it is the only one that can log a
         # sourceless or image-only clue, since there is no puzzle id for a

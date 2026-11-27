@@ -20,3 +20,16 @@ window.addEventListener("message", (event) => {
     /* "Extension context invalidated" after an extension update: reload the dashboard tab */
   }
 });
+
+// A board link the extension folded in from a duplicate tab: hand its query to the SPA,
+// which applies it without reloading. Answers whether the page took it; `false` (a
+// dashboard too old to publish data-puzzbot-links) makes the extension navigate instead.
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type !== "openBoardLink") return;
+  if (typeof msg.search !== "string" || document.documentElement.dataset.puzzbotLinks !== "1") {
+    sendResponse(false);
+    return;
+  }
+  window.postMessage({ source: "puzzbot-extension", action: "openBoardLink", search: msg.search }, location.origin);
+  sendResponse(true);
+});

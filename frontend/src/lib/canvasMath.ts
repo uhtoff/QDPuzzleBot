@@ -100,16 +100,33 @@ export function polylineHitsCircle(
   return false;
 }
 
-/** A client point as normalised [0..1] image coordinates within `rect`.
- *  Null for a zero-size rect, where the ratio would be NaN or Infinity. */
+/** Blank margin around an image that marks may be drawn in, as a fraction of
+ *  the image's width/height on each side. MUST match MARGIN in
+ *  bot/core/markup_shape.py, which refuses coordinates outside it. */
+export const MARKUP_MARGIN = 0.25;
+
+/** A text mark's font size when its shape stores none, as a fraction of the
+ *  image height, and the CSS line-height its lines are laid out with. Shared
+ *  by the editor's text layer and the snapshot renderer. */
+export const TEXT_DEFAULT_SIZE = 0.04;
+export const TEXT_LINE_HEIGHT = 1.2;
+
+/** A client point as normalised image coordinates within `rect`: 0..1 across
+ *  the image, clamped to [-margin, 1 + margin]. Null for a zero-size rect,
+ *  where the ratio would be NaN or Infinity. */
 export function normPoint(
   clientX: number,
   clientY: number,
   rect: Rect,
+  margin = 0,
 ): [number, number] | null {
   if (!rect.width || !rect.height) return null;
+  // 0 - margin, not -margin: with no margin, -0 would leak out as the clamp
+  // floor and fail an exact comparison against 0.
+  const lo = 0 - margin;
+  const clamp = (v: number) => Math.min(1 + margin, Math.max(lo, v));
   return [
-    Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)),
-    Math.min(1, Math.max(0, (clientY - rect.top) / rect.height)),
+    clamp((clientX - rect.left) / rect.width),
+    clamp((clientY - rect.top) / rect.height),
   ];
 }

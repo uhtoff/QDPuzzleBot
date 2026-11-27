@@ -3,7 +3,7 @@
 // silently wrong -- an anchor that drifts a pixel per zoom step, a tile seam
 // that only opens at fractional scales -- and none of it needs a DOM to check.
 import { describe, expect, it } from "vitest";
-import { clampScale, normPoint, polylineHitsCircle, tileRect, zoomAt } from "./canvasMath";
+import { MARKUP_MARGIN, clampScale, normPoint, polylineHitsCircle, tileRect, zoomAt } from "./canvasMath";
 
 describe("zoomAt", () => {
   it("keeps the point under the anchor fixed on screen", () => {
@@ -35,6 +35,9 @@ describe("tileRect", () => {
 });
 
 describe("normPoint", () => {
+  it("MARKUP_MARGIN matches the server's markup_shape.MARGIN", () => {
+    expect(MARKUP_MARGIN).toBe(0.25);
+  });
   const rect = { left: 10, top: 20, width: 200, height: 100 };
   it("maps rect corners to 0 and 1", () => {
     expect(normPoint(10, 20, rect)).toEqual([0, 0]);
@@ -47,6 +50,14 @@ describe("normPoint", () => {
   it("returns null for a zero-size rect", () => {
     expect(normPoint(5, 5, { left: 0, top: 0, width: 0, height: 0 })).toBeNull();
   });
+  it("with a margin, maps points outside the rect below 0 / above 1", () => {
+    // rect 200x100 at (10,20); 25 px left of it is -0.125 of its width
+    expect(normPoint(-15, 20, rect, 0.25)).toEqual([-0.125, 0]);
+    expect(normPoint(210, 145, rect, 0.25)).toEqual([1, 1.25]);
+  });
+  it("with a margin, clamps to the margin's edge", () => {
+    expect(normPoint(-999, 999, rect, 0.25)).toEqual([-0.25, 1.25]);
+  });
 });
 
 describe("polylineHitsCircle", () => {
@@ -56,6 +67,11 @@ describe("polylineHitsCircle", () => {
   // A horizontal stroke across the middle, stored as two far-apart points.
   const line: [number, number][] = [[0.1, 0.5], [0.9, 0.5]];
 
+  it("hits a stroke lying wholly in the margin (negative coordinates)", () => {
+    const margin: [number, number][] = [[-0.2, -0.2], [-0.1, -0.2]]; // px (-80,-20)..(-40,-20)
+    expect(polylineHitsCircle(margin, W, H, -60, -20, 5)).toBe(true);
+    expect(polylineHitsCircle(margin, W, H, -60, 10, 5)).toBe(false);
+  });
   it("hits the middle of a long segment, not just its vertices", () => {
     // Dead centre of the stroke, nowhere near either stored point.
     expect(polylineHitsCircle(line, W, H, 200, 50, 5)).toBe(true);

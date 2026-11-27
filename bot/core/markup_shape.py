@@ -1,8 +1,11 @@
 """Validation for one mark drawn on an image.
 
-Pure: no DB, no Quart, no image. Coordinates are normalised 0-1, the same
-choice canvas_shape makes and for the same reason — a mark survives any change
-of resolution, and the SVG overlay can use the stored numbers directly.
+Pure: no DB, no Quart, no image. Coordinates are normalised to the image, 0-1
+across and down, the same choice canvas_shape makes and for the same reason — a
+mark survives any change of resolution, and the SVG overlay can use the stored
+numbers directly. Unlike canvas regions, marks may also sit in a blank MARGIN
+around the image (drawing an arrow in from outside it), so the accepted range is
+-MARGIN .. 1 + MARGIN.
 
 Deliberately NOT folded into canvas_shape: that module's rectangle rules are
 load-bearing for cropping (rect_bounds feeds crop_bytes), and growing branches
@@ -23,6 +26,11 @@ KINDS = (PEN, LINE, TEXT)
 MAX_POINTS = 2000
 MAX_TEXT = 500
 
+#: Blank margin around the image that marks may be drawn in, as a fraction of
+#: the image's width/height on each side. MUST match MARKUP_MARGIN in
+#: frontend/src/lib/canvasMath.ts — the editor clamps to the same bounds.
+MARGIN = 0.25
+
 _COLOUR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -39,8 +47,8 @@ def _coord(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise MarkupRejected("Coordinates must be numbers.")
     out = float(value)
-    if not (0.0 <= out <= 1.0):
-        raise MarkupRejected("Coordinates must be between 0 and 1.")
+    if not (-MARGIN <= out <= 1.0 + MARGIN):
+        raise MarkupRejected(f"Coordinates must be between {-MARGIN} and {1 + MARGIN}.")
     return out
 
 

@@ -3,14 +3,17 @@ import { Box, Button, ColorSwatch, Group, Slider, Stack, Textarea, Tooltip } fro
 import { useElementSize, useMergedRef } from "@mantine/hooks";
 import {
   IconArrowUpRight, IconDeviceFloppy, IconEraser, IconHighlight, IconLine,
-  IconPencil, IconTextSize, IconArrowBackUp,
+  IconPencil, IconTextSize, IconArrowBackUp, IconBrandDiscord,
 } from "@tabler/icons-react";
-import type { MarkKind, MarkStyle, MediaMark } from "../types";
-import { useCreateMark, useDeleteMark, useMarkup } from "../api";
-import { normPoint, polylineHitsCircle } from "../lib/canvasMath";
+import type { MarkKind, MarkStyle, MediaMark, PostTarget } from "../types";
+import { useCreateMark, useDeleteMark, useMarkup, usePostImage } from "../api";
+import { MARKUP_MARGIN, TEXT_DEFAULT_SIZE, TEXT_LINE_HEIGHT, normPoint, polylineHitsCircle } from "../lib/canvasMath";
 import { cycleIndex } from "../lib/cycleIndex";
 import { useWheelZoom } from "../hooks/useZoomPan";
-import { notifyError } from "../util";
+import { drawMarkup, encodeSnapshot, snapshotBounds, snapshotScale } from "../lib/markupSnapshot";
+import { buildPostForm } from "../lib/postToDiscord";
+import { notifyError, notifySuccess } from "../util";
+import { PostToDiscordModal } from "./PostToDiscordModal";
 
 type Tool = "pen" | "line" | "arrow" | "highlighter" | "text" | "eraser" | null;
 
@@ -99,12 +102,20 @@ type Props = {
    *  this commits any half-typed text box and hands control back to the
    *  surface that opened the canvas (the modal closes). */
   onSave?: () => void;
+  /** When set, a "Post to Discord" button posts the marked-up image here. */
+  postTarget?: PostTarget;
+  /** Where that post lands, for the dialog ("the puzzle's channel"). */
+  postDestination?: string;
 };
 
-export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
+export function MarkupCanvas({ mediaId, alt, onSave, postTarget, postDestination }: Props) {
   const marks = useMarkup(mediaId);
   const createMark = useCreateMark(mediaId);
   const deleteMark = useDeleteMark(mediaId);
+  const postImage = usePostImage(mediaId);
+  const [postOpen, setPostOpen] = useState(false);
+  /** The HTML text layer, read at post time for its computed font-family. */
+  const textLayerRef = useRef<HTMLDivElement>(null);
 
   const [tool, setTool] = useState<Tool>("pen");
   const [colour, setColour] = useState(COLOURS[0]);
@@ -154,7 +165,11 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
    *  surface gives it, but the image sits inside a shrink-wrapped div whose
    *  height is auto — so a percentage max-height on the <img> has nothing to
    *  resolve against. Measuring the frame gives it a real pixel cap. */
-  const { ref: frameSizeRef, height: frameH } = useElementSize();
+  const { ref: frameSizeRef, width: frameW, height: frameH } = useElementSize();
+  /** The image is capped so that it PLUS its blank margin on both sides fits
+   *  the frame at zoom 1. Until the frame is measured, fall back to the old
+   *  caps (the margin then just overflows until the first measurement). */
+  const marginScale = 1 + 2 * MARKUP_MARGIN;
 
   /** Whether Ctrl is currently down, purely so the cursor advertises that a
    *  drag would pan. Window-level because the pointer may be nowhere near the
@@ -211,7 +226,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   const toNorm = useCallback((e: React.PointerEvent): [number, number] | null => {
     const rect = imgRef.current?.getBoundingClientRect();
     if (!rect) return null;
-    return normPoint(e.clientX, e.clientY, rect);
+    return normPoint(e.clientX, e.clientY, rect, MARKUP_MARGIN);
   }, []);
 
   const commitStroke = useCallback(async (points: [number, number][]) => {
@@ -246,13 +261,13 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
         // roughly half an em per character, then test the circle against that
         // rectangle. Erring generous is the right way round: a text mark you
         // meant to keep is one Undo away.
-        const fs = (m.shape.size ?? 0.04) * imgBox.h;
+        const fs = (m.shape.size ?? TEXT_DEFAULT_SIZE) * imgBox.h;
         const [[tx, ty]] = m.shape.points;
         const lines = (m.text ?? "").split("\n");
         const left = tx * imgBox.w;
         const top = ty * imgBox.h;
         const w = fs * 0.5 * Math.max(...lines.map((l) => l.length), 1);
-        const h = fs * 1.2 * lines.length;
+        const h = fs * TEXT_LINE_HEIGHT * lines.length;
         const nx = Math.min(Math.max(cx, left), left + w);
         const ny = Math.min(Math.max(cy, top), top + h);
         hit = Math.hypot(cx - nx, cy - ny) <= r;
@@ -387,6 +402,48 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   /** Font size as a fraction of the image's height, from the size slider. */
   const textSize = textSizeFor(width_);
 
+  /** Opens the post dialog. Any half-typed text mark is committed first, so it
+   *  is in the query data (the mutation awaits the refetch) before rendering. */
+  const openPost = async () => {
+    await commitText();
+    setPostOpen(true);
+  };
+
+  /** Render the image and its marks exactly as the editor shows them, then
+   *  upload. Throws (the dialog shows it) on any failure. */
+  const post = async (content: string) => {
+    if (!postTarget) return;
+    const img = imgRef.current;
+    if (!img || !img.complete || !img.naturalWidth) {
+      throw new Error("The image hasn't finished loading yet.");
+    }
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const opts = {
+      rightEdge: 1 + MARKUP_MARGIN,
+      lineHeight: TEXT_LINE_HEIGHT,
+      fontFamily: textLayerRef.current
+        ? getComputedStyle(textLayerRef.current).fontFamily : "sans-serif",
+    };
+    const m = marks.data ?? [];
+    // Measure at NATURAL size, then size the canvas to the bounds * scale.
+    const mctx = document.createElement("canvas").getContext("2d");
+    if (!mctx) throw new Error("Canvas isn't available in this browser.");
+    const b = snapshotBounds(mctx, m, w, h, opts);
+    const s = snapshotScale(b.w, b.h);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(b.w * s);
+    canvas.height = Math.ceil(b.h * s);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas isn't available in this browser.");
+    ctx.scale(s, s);
+    ctx.translate(-b.x, -b.y);
+    drawMarkup(ctx, img, m, w, h, opts);
+    const enc = await encodeSnapshot(canvas);
+    if ("error" in enc) throw enc;
+    await postImage.mutateAsync(buildPostForm(enc.blob, enc.ext, content, postTarget));
+    notifySuccess(`Posted to ${postDestination ?? "Discord"}`);
+  };
+
   const undo = useCallback(() => {
     const last = mine.current.pop();
     if (last != null) deleteMark.mutate(last, { onError: (e) => notifyError(e) });
@@ -487,6 +544,14 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
         </Tooltip>
         <Slider w={90} min={WIDTH_MIN} max={WIDTH_MAX} step={0.001} value={width_}
                 onChange={setWidth} label={null} />
+        {postTarget && (
+          <Tooltip label="Post this image, with its marks, to Discord">
+            <Button size="xs" variant="light" leftSection={<IconBrandDiscord size={14} />}
+                    onClick={() => void openPost()}>
+              Post to Discord
+            </Button>
+          </Tooltip>
+        )}
         {onSave && (
           <Tooltip label="Marks are saved as you draw — this closes the image">
             <Button size="xs" leftSection={<IconDeviceFloppy size={14} />}
@@ -497,10 +562,15 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
         )}
       </Group>
 
-      {/* Three nested boxes, and the nesting is load-bearing:
-          - frame: fixed viewport height, clips, owns the pointer handlers;
-          - fit:   shrink-wraps the image, so it IS the image's box;
-          - img:   sized by max-width/max-height, NOT object-fit.
+      {/* Four nested boxes, and the nesting is load-bearing:
+          - frame:  fixed viewport height, clips, owns the pointer handlers;
+          - margin: carries the zoom/pan transform, and pads the image by
+                    MARKUP_MARGIN of its own size on every side — the shaded
+                    area marks may be drawn in, outside the picture;
+          - fit:    shrink-wraps the image, so it IS the image's box (toNorm
+                    measures this, and the SVG/text layers cover it — marks
+                    beyond 0..1 draw outside it via overflow: visible);
+          - img:    sized by max-width/max-height, NOT object-fit.
 
           object-fit: contain would letterbox INSIDE the element box, so
           getBoundingClientRect() would return the padded box and every stroke
@@ -523,12 +593,22 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
         onPointerCancel={onPointerCancel}
         onPointerLeave={() => setEraserAt(null)}
       >
-       <div style={{ position: "relative", display: "inline-block", lineHeight: 0,
+       <div style={{ display: "inline-block", lineHeight: 0,
+                     padding: `${imgH * MARKUP_MARGIN}px ${imgW * MARKUP_MARGIN}px`,
+                     // Scheme-aware: the app follows the OS light/dark setting.
+                     background: "light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5))",
+                     outline: "1px dashed light-dark(var(--mantine-color-gray-5), var(--mantine-color-dark-2))",
                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                      transformOrigin: "0 0" }}>
+       {/* The page background behind the image itself, so a transparent PNG
+           looks as it did before and its edge stays visible against the
+           shaded margin. */}
+       <div style={{ position: "relative", display: "inline-block", lineHeight: 0,
+                     background: "var(--mantine-color-body)" }}>
         <img ref={imgRefs} src={`/api/media/${mediaId}`} alt={alt} draggable={false}
-             style={{ display: "block", maxWidth: "100%",
-                      maxHeight: frameH || "70vh",
+             style={{ display: "block",
+                      maxWidth: frameW ? frameW / marginScale : "100%",
+                      maxHeight: frameH ? frameH / marginScale : "70vh",
                       width: "auto", height: "auto", userSelect: "none" }} />
 
         {/* Normalised coordinates go straight in — the same payoff the region
@@ -536,7 +616,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
             image, so inset:0 is exactly the image's rectangle. */}
         <svg viewBox="0 0 1 1" preserveAspectRatio="none"
              style={{ position: "absolute", inset: 0, width: "100%", height: "100%",
-                      pointerEvents: "none" }}>
+                      pointerEvents: "none", overflow: "visible" }}>
           <defs>
             {COLOURS.map((c) => (
               <marker key={c} id={`arrow-${c.slice(1)}`} viewBox="0 0 10 10"
@@ -565,8 +645,15 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
             aspect ratio. This layer sits in the same shrink-wrapped box, so it
             still lines up with the image and still scales with the zoom
             transform, while the type stays the shape it was drawn as. */}
-        <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
-                      lineHeight: 1.2 }}>
+        {/* The text layer spans the image PLUS its margin (negative insets are
+            percentages of the image box), so a text mark wraps at the margin's
+            right edge rather than the image's — one placed in the right margin
+            would otherwise get a negative width and break after every word. */}
+        <div ref={textLayerRef}
+             style={{ position: "absolute", pointerEvents: "none",
+                      left: `${-MARKUP_MARGIN * 100}%`, right: `${-MARKUP_MARGIN * 100}%`,
+                      top: `${-MARKUP_MARGIN * 100}%`, bottom: `${-MARKUP_MARGIN * 100}%`,
+                      lineHeight: TEXT_LINE_HEIGHT }}>
           {(marks.data ?? []).filter((m) => m.kind === "text").map((m) => {
             const [[x, y]] = m.shape.points;
             return (
@@ -574,10 +661,11 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
                 key={m.id}
                 style={{
                   position: "absolute",
-                  left: `${x * 100}%`, top: `${y * 100}%`,
+                  left: `${((x + MARKUP_MARGIN) / marginScale) * 100}%`,
+                  top: `${((y + MARKUP_MARGIN) / marginScale) * 100}%`,
                   // Font size is stored normalised against the image's height,
                   // so ink scales with the picture rather than the viewport.
-                  fontSize: (m.shape.size ?? 0.04) * (imgBox.h || 0),
+                  fontSize: (m.shape.size ?? TEXT_DEFAULT_SIZE) * (imgBox.h || 0),
                   color: m.style.colour, opacity: m.style.opacity,
                   whiteSpace: "pre-wrap", userSelect: "none",
                   // Erasing text goes through the frame's circle hit-test too,
@@ -590,6 +678,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
             );
           })}
         </div>
+       </div>
        </div>
 
         {/* The eraser cursor. It sits outside the transformed div — like the
@@ -635,6 +724,15 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
           </Box>
         )}
       </Box>
+
+      {postTarget && (
+        <PostToDiscordModal
+          opened={postOpen}
+          destination={postDestination ?? "the channel"}
+          onClose={() => setPostOpen(false)}
+          onPost={post}
+        />
+      )}
     </Stack>
   );
 }

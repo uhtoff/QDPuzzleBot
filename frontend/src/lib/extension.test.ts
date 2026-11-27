@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  boardLinkFromMessage,
   closeSolved,
   extensionPresent,
   extensionSupports,
@@ -161,5 +162,41 @@ describe("extension bridge", () => {
       expect(openPageViaExtension(click().ev, SHEET, PAGE)).toBe(false);
       expect(postMessage).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("boardLinkFromMessage (a link the extension folded in)", () => {
+  const win = {};
+  const ORIGIN = "https://dash.test";
+  const ev = (data: unknown, over: { source?: unknown; origin?: string } = {}) => ({
+    source: "source" in over ? over.source : win,
+    origin: over.origin ?? ORIGIN,
+    data,
+  });
+  const msg = (search: unknown, extra: Record<string, unknown> = {}) => ({
+    source: "puzzbot-extension",
+    action: "openBoardLink",
+    search,
+    ...extra,
+  });
+
+  it("accepts a query string and an empty one", () => {
+    expect(boardLinkFromMessage(ev(msg("?puzzle=3&image=50")), win, ORIGIN)).toBe("?puzzle=3&image=50");
+    expect(boardLinkFromMessage(ev(msg("")), win, ORIGIN)).toBe("");
+  });
+
+  it("rejects the wrong window, origin, sender or action", () => {
+    expect(boardLinkFromMessage(ev(msg("?image=1"), { source: {} }), win, ORIGIN)).toBeNull();
+    expect(boardLinkFromMessage(ev(msg("?image=1"), { origin: "https://evil.test" }), win, ORIGIN)).toBeNull();
+    expect(boardLinkFromMessage(ev(msg("?image=1", { source: "puzzbot-dashboard" })), win, ORIGIN)).toBeNull();
+    expect(boardLinkFromMessage(ev(msg("?image=1", { action: "work" })), win, ORIGIN)).toBeNull();
+    expect(boardLinkFromMessage(ev(null), win, ORIGIN)).toBeNull();
+  });
+
+  it("rejects a search that is not a short query string", () => {
+    expect(boardLinkFromMessage(ev(msg(5)), win, ORIGIN)).toBeNull();
+    expect(boardLinkFromMessage(ev(msg("https://evil/x")), win, ORIGIN)).toBeNull();
+    expect(boardLinkFromMessage(ev(msg("?" + "a".repeat(2000))), win, ORIGIN)).toBeNull();
+    expect(boardLinkFromMessage(ev(msg("?" + "a".repeat(1999))), win, ORIGIN)).toBe("?" + "a".repeat(1999));
   });
 });

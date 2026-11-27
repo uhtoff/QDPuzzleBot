@@ -16,10 +16,11 @@ import {
   Title,
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { notifications } from "@mantine/notifications";
 import { IconArrowLeft, IconBrowserX } from "@tabler/icons-react";
-import { useHunt } from "../api";
-import { closeSolved, extensionSupports } from "../lib/extension";
+import { useEvidence, useHunt } from "../api";
+import { boardLinkFromMessage, closeSolved, extensionSupports } from "../lib/extension";
 import { boardViews, type BoardView } from "../lib/boardViews";
 import { boardGroupRows, filterActive, type PuzzleFilter } from "../lib/puzzleFilter";
 import { PuzzleFilterBar } from "../components/PuzzleFilterBar";
@@ -30,6 +31,9 @@ import { PuzzleTable } from "../components/PuzzleTable";
 import { DragBoard } from "../components/DragBoard";
 import { CreateControls } from "../components/CreateControls";
 import { PuzzleDrawer } from "../components/PuzzleDrawer";
+import { MarkupModal } from "../components/MarkupModal";
+import { parseBoardLink } from "../lib/deepLink";
+import { ARCHIVED_NOTICE, IMAGE_GONE_NOTICE, imageOnlyLinkLive, resolveDeepLink } from "../lib/stripItems";
 import { ChatViewer } from "../components/ChatViewer";
 import { SolveModal } from "../components/PuzzleEditCells";
 import { EvidencePanel } from "../components/EvidencePanel";
@@ -196,6 +200,8 @@ const BoardByGroupView = memo(function BoardByGroupView({
 export default function HuntBoard() {
   const { uid } = useParams();
   const { data: rawData, isLoading, error } = useHunt(uid);
+  // Shared cache with the strip and Evidence view; used to check image-only deep links.
+  const { data: evidence, isPending: evidencePending } = useEvidence(uid ?? "");
   const { viewAs } = useViewAs();
   const qc = useQueryClient();
   const live = useActivityFeed((u) => {
@@ -224,6 +230,11 @@ export default function HuntBoard() {
   const [isPending, startTransition] = useTransition();
 
   const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
+  // Deep link (?puzzle=&image=): media for the drawer's strip to open, and a
+  // board-level editor for an image link that names no puzzle.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [deepMediaId, setDeepMediaId] = useState<number | null>(null);
+  const [boardMediaId, setBoardMediaId] = useState<number | null>(null);
   const [chatPuzzleId, setChatPuzzleId] = useState<number | null>(null);
   const [solvePuzzleId, setSolvePuzzleId] = useState<number | null>(null);
   // By-group open/collapse choices, remembered per hunt in this browser.
@@ -297,6 +308,54 @@ export default function HuntBoard() {
   const chat = useLingering(
     chatPuzzleId != null ? allPuzzles.find((p) => p.id === chatPuzzleId) ?? null : null,
   );
+
+  // Handle a deep link once, as soon as the board has loaded, then clear it so
+  // a refresh or later navigation does not reopen it.
+  useEffect(() => {
+    if (!rawData || searchParams.size === 0) return;
+    const link = parseBoardLink(searchParams.toString());
+    const archived = rawData.hunt.archived;
+    const r = link.puzzleId != null ? resolveDeepLink(link, allPuzzles, []) : null;
+    const imageOnly = r == null ? link.mediaId : r.puzzleId == null ? r.mediaId : null;
+    // An image-only link is checked against the hunt's evidence: wait for it.
+    // If the evidence query failed, open the image anyway rather than block.
+    if (imageOnly != null && !archived && evidencePending) return;
+    if (r != null) {
+      if (r.puzzleId == null) {
+        // Unknown puzzle: say so, but still open the image on its own.
+        notifications.show({ message: r.notice ?? "", color: "yellow" });
+      } else {
+        // The strip resolves the image itself (it owns the image lists).
+        setNotesPuzzleId(r.puzzleId);
+        setDeepMediaId(link.mediaId);
+      }
+    }
+    if (imageOnly != null) {
+      if (archived) notifications.show({ message: ARCHIVED_NOTICE, color: "yellow" });
+      else if (evidence && !imageOnlyLinkLive(imageOnly, evidence)) {
+        // "That puzzle no longer exists" already covers its image.
+        if (r == null) notifications.show({ message: IMAGE_GONE_NOTICE, color: "yellow" });
+      } else setBoardMediaId(imageOnly);
+    }
+    setSearchParams({}, { replace: true });
+  }, [rawData, allPuzzles, searchParams, setSearchParams, evidence, evidencePending]);
+
+  // A board link the extension folded in from a duplicate tab arrives as a message: apply
+  // it as this tab's query, without reloading, and the deep-link effect above handles it.
+  // The attribute tells the extension this board can take one (else it navigates the tab).
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.puzzbotLinks = "1";
+    const onMessage = (e: MessageEvent) => {
+      const search = boardLinkFromMessage(e, window, window.location.origin);
+      if (search) setSearchParams(new URLSearchParams(search));
+    };
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      delete root.dataset.puzzbotLinks;
+    };
+  }, [setSearchParams]);
 
   const openNotes = useCallback((p: Puzzle) => setNotesPuzzleId(p.id), []);
   const openChat = useCallback((p: Puzzle) => setChatPuzzleId(p.id), []);
@@ -507,7 +566,11 @@ export default function HuntBoard() {
         })()}
       </Box>
 
-      <PuzzleDrawer puzzle={notesPuzzle} detail={data} voice={voice} onClose={() => setNotesPuzzleId(null)} />
+      <PuzzleDrawer puzzle={notesPuzzle} detail={data} voice={voice} onClose={() => { setNotesPuzzleId(null); setDeepMediaId(null); }}
+        openMediaId={deepMediaId}
+        onMediaOpened={() => setDeepMediaId(null)}
+      />
+      <MarkupModal mediaId={boardMediaId} alt={data.hunt.name} onClose={() => setBoardMediaId(null)} />
       <SolveModal puzzle={solvePuzzle} uid={data.hunt.uid} onClose={() => setSolvePuzzleId(null)} />
       {chat.value && (
         <ChatViewer
