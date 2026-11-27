@@ -17,6 +17,7 @@ import { panelWindow } from "./lib/panelWindow.js";
 import { groupMove } from "./lib/groupMove.js";
 import { pickColour, findRoundGroup, findPuzzleGroup } from "./lib/groupColour.js";
 import { needsSocket } from "./lib/connection.js";
+import { boardReuseTarget, handOverBoardLink } from "./lib/boardReuse.js";
 import { createPanelHost } from "./lib/panelHost.js";
 import { apiGet, apiSend, getOrigin } from "./api.js";
 
@@ -764,11 +765,38 @@ async function focusTab(tab) {
   await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
 }
 
+// A board link for a hunt whose board is already open: hand it to that tab, close this one.
+async function maybeReuseBoard(tabId, beforeUid) {
+  const origin = await getOrigin();
+  const tabs = await chrome.tabs.query({}).catch(() => []);
+  const newTab = tabs.find((t) => t.id === tabId);
+  if (!newTab?.url) return;
+  const targetId = boardReuseTarget({ newTab, beforeUid, tabs, origin });
+  if (targetId === null || !(await chrome.tabs.get(targetId).catch(() => null))) return;
+  await handOverBoardLink({
+    targetId,
+    newTabId: tabId,
+    url: newTab.url,
+    api: {
+      sendMessage: (id, msg) => chrome.tabs.sendMessage(id, msg),
+      update: (id, props) => chrome.tabs.update(id, props),
+      focus: (id) => chrome.tabs.get(id).then(focusTab),
+      remove: (id) => chrome.tabs.remove(id),
+    },
+  });
+}
+const queueBoardReuse = (tabId, beforeUid) => {
+  reuseChain = reuseChain.then(() => maybeReuseBoard(tabId, beforeUid)).catch(() => {});
+};
+
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   if (!(info.url || info.status === "complete")) return;
   (async () => {
     await ready;
-    const before = registry.get(tabId)?.spreadsheetId;
+    const entry = registry.get(tabId);
+    const before = entry?.spreadsheetId;
+    // The hunt this tab's board already showed: a reload or the SPA's own query change is not an arrival.
+    if (info.url) queueBoardReuse(tabId, entry?.hunt_chat ? entry.hunt_uid : undefined);
     await refreshTab(tab);
     // Only a tab newly arriving at a spreadsheet is a duplicate candidate, not a reload or in-file navigation.
     if (isNewArrival(before, registry.get(tabId)?.spreadsheetId)) queueReuse(tabId);

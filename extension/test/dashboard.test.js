@@ -4,8 +4,10 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 // against stubbed page globals, then inspect what it published and relays.
 const dataset = {};
 let onMessage = null;
+let onRuntime = null;
 const sendMessage = vi.fn(() => Promise.resolve());
 const win = {
+  postMessage: vi.fn(),
   addEventListener: (type, fn) => {
     if (type === "message") onMessage = fn;
   },
@@ -15,7 +17,13 @@ beforeAll(async () => {
   vi.stubGlobal("document", { documentElement: { dataset } });
   vi.stubGlobal("window", win);
   vi.stubGlobal("location", { origin: "https://dash.test" });
-  vi.stubGlobal("chrome", { runtime: { sendMessage, getManifest: () => ({ version: "9.8.7" }) } });
+  vi.stubGlobal("chrome", {
+    runtime: {
+      sendMessage,
+      getManifest: () => ({ version: "9.8.7" }),
+      onMessage: { addListener: (fn) => (onRuntime = fn) },
+    },
+  });
   await import("../src/dashboard.js");
 });
 
@@ -38,5 +46,36 @@ describe("dashboard content script", () => {
     sendMessage.mockClear();
     post("notAnAction");
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("relays a board link when the page supports it", () => {
+    win.postMessage.mockClear();
+    dataset.puzzbotLinks = "1";
+    const respond = vi.fn();
+    onRuntime({ type: "openBoardLink", search: "?image=5" }, {}, respond);
+    expect(win.postMessage).toHaveBeenCalledWith(
+      { source: "puzzbot-extension", action: "openBoardLink", search: "?image=5" },
+      "https://dash.test",
+    );
+    expect(respond).toHaveBeenCalledWith(true);
+  });
+
+  it("declines when the page has not published support", () => {
+    win.postMessage.mockClear();
+    delete dataset.puzzbotLinks;
+    const respond = vi.fn();
+    onRuntime({ type: "openBoardLink", search: "?image=5" }, {}, respond);
+    expect(win.postMessage).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(false);
+  });
+
+  it("ignores other messages and a non-string search", () => {
+    win.postMessage.mockClear();
+    dataset.puzzbotLinks = "1";
+    const respond = vi.fn();
+    onRuntime({ type: "other" }, {}, respond);
+    onRuntime({ type: "openBoardLink", search: 5 }, {}, respond);
+    expect(respond).not.toHaveBeenCalledWith(true);
+    expect(win.postMessage).not.toHaveBeenCalled();
   });
 });
