@@ -333,7 +333,8 @@ export default function HuntBoard() {
     if (imageOnly != null) {
       if (archived) notifications.show({ message: ARCHIVED_NOTICE, color: "yellow" });
       else if (evidence && !imageOnlyLinkLive(imageOnly, evidence)) {
-        notifications.show({ message: IMAGE_GONE_NOTICE, color: "yellow" });
+        // "That puzzle no longer exists" already covers its image.
+        if (r == null) notifications.show({ message: IMAGE_GONE_NOTICE, color: "yellow" });
       } else setBoardMediaId(imageOnly);
     }
     setSearchParams({}, { replace: true });
