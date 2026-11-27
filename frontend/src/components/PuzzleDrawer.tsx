@@ -56,6 +56,9 @@ interface Props {
   detail: HuntDetail;
   voice: LiveVoice;
   onClose: () => void;
+  /** Deep link: media whose editor the image strip should open. */
+  openMediaId?: number | null;
+  onMediaOpened?: () => void;
 }
 
 function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -69,7 +72,7 @@ function MetaRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-export function PuzzleDrawer({ puzzle, detail, voice, onClose }: Props) {
+export function PuzzleDrawer({ puzzle, detail, voice, onClose, openMediaId = null, onMediaOpened }: Props) {
   const uid = detail.hunt.uid;
   const editable = !detail.hunt.archived;
   const [text, setText] = useState("");
@@ -359,7 +362,7 @@ export function PuzzleDrawer({ puzzle, detail, voice, onClose }: Props) {
           {/* Keyed for the same reason: it holds the markup target and the
               remove-confirmation target, both of which are images belonging to
               whichever puzzle was open when they were picked. */}
-          <PuzzleImages key={puzzle.id} puzzleId={puzzle.id} puzzleName={puzzle.name} uid={uid} editable={editable} />
+          <PuzzleImages key={puzzle.id} puzzleId={puzzle.id} puzzleName={puzzle.name} uid={uid} editable={editable} openMediaId={openMediaId} onOpened={onMediaOpened} />
 
           <Divider label="Sheets" labelPosition="left" />
           <Stack gap="xs">

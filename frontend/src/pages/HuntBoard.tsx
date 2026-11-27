@@ -16,7 +16,8 @@ import {
   Title,
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { notifications } from "@mantine/notifications";
 import { IconArrowLeft, IconBrowserX } from "@tabler/icons-react";
 import { useHunt } from "../api";
 import { closeSolved, extensionSupports } from "../lib/extension";
@@ -30,6 +31,9 @@ import { PuzzleTable } from "../components/PuzzleTable";
 import { DragBoard } from "../components/DragBoard";
 import { CreateControls } from "../components/CreateControls";
 import { PuzzleDrawer } from "../components/PuzzleDrawer";
+import { MarkupModal } from "../components/MarkupModal";
+import { parseBoardLink } from "../lib/deepLink";
+import { resolveDeepLink } from "../lib/stripItems";
 import { ChatViewer } from "../components/ChatViewer";
 import { SolveModal } from "../components/PuzzleEditCells";
 import { EvidencePanel } from "../components/EvidencePanel";
@@ -224,6 +228,11 @@ export default function HuntBoard() {
   const [isPending, startTransition] = useTransition();
 
   const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
+  // Deep link (?puzzle=&image=): media for the drawer's strip to open, and a
+  // board-level editor for an image link that names no puzzle.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [deepMediaId, setDeepMediaId] = useState<number | null>(null);
+  const [boardMediaId, setBoardMediaId] = useState<number | null>(null);
   const [chatPuzzleId, setChatPuzzleId] = useState<number | null>(null);
   const [solvePuzzleId, setSolvePuzzleId] = useState<number | null>(null);
   // By-group open/collapse choices, remembered per hunt in this browser.
@@ -297,6 +306,24 @@ export default function HuntBoard() {
   const chat = useLingering(
     chatPuzzleId != null ? allPuzzles.find((p) => p.id === chatPuzzleId) ?? null : null,
   );
+
+  // Handle a deep link once, as soon as the board has loaded, then clear it so
+  // a refresh or later navigation does not reopen it.
+  useEffect(() => {
+    if (!rawData || searchParams.size === 0) return;
+    const link = parseBoardLink(searchParams.toString());
+    if (link.puzzleId != null) {
+      const r = resolveDeepLink({ puzzleId: link.puzzleId, mediaId: null }, allPuzzles, []);
+      if (r.notice) notifications.show({ message: r.notice, color: "yellow" });
+      else {
+        setNotesPuzzleId(r.puzzleId);
+        setDeepMediaId(link.mediaId);
+      }
+    } else if (link.mediaId != null) {
+      setBoardMediaId(link.mediaId);
+    }
+    setSearchParams({}, { replace: true });
+  }, [rawData, allPuzzles, searchParams, setSearchParams]);
 
   const openNotes = useCallback((p: Puzzle) => setNotesPuzzleId(p.id), []);
   const openChat = useCallback((p: Puzzle) => setChatPuzzleId(p.id), []);
@@ -507,7 +534,11 @@ export default function HuntBoard() {
         })()}
       </Box>
 
-      <PuzzleDrawer puzzle={notesPuzzle} detail={data} voice={voice} onClose={() => setNotesPuzzleId(null)} />
+      <PuzzleDrawer puzzle={notesPuzzle} detail={data} voice={voice} onClose={() => setNotesPuzzleId(null)}
+        openMediaId={deepMediaId}
+        onMediaOpened={() => setDeepMediaId(null)}
+      />
+      <MarkupModal mediaId={boardMediaId} alt={data.hunt.name} onClose={() => setBoardMediaId(null)} />
       <SolveModal puzzle={solvePuzzle} uid={data.hunt.uid} onClose={() => setSolvePuzzleId(null)} />
       {chat.value && (
         <ChatViewer
