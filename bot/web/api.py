@@ -438,7 +438,7 @@ async def post_media_to_channel(media_id):
     """Post a marked-up snapshot of an image, plus a dashboard link, into the
     puzzle's Discord channel as the logged-in member. Posts on the user's
     behalf, so every gate of post_channel_message applies."""
-    from bot.core.media_store import MediaRejected, sniff_image_type, validate_image_bytes
+    from bot.core.media_store import MediaRejected, validate_image_bytes
     from bot.store import HuntJsonDb, MediaJsonDb
     from bot.utils import urls
     from bot.web.actions import _audit
@@ -455,7 +455,8 @@ async def post_media_to_channel(media_id):
     media = MediaJsonDb.get_by_id(media_id)
     hunt_row = HuntJsonDb.get_by_attr(id=media.hunt_id) if media is not None else None
     if media is None or hunt_row is None:
-        return jsonify({"error": "not_found"}), 404
+        # Same answer as a hidden hunt, so media ids cannot be probed.
+        return jsonify({"error": "not_found_or_forbidden"}), 404
     hunt, guild_info = await _load_visible_hunt(hunt_row.uid)
     if hunt is None:
         return jsonify({"error": "not_found_or_forbidden"}), 404
@@ -468,6 +469,9 @@ async def post_media_to_channel(media_id):
         return err
     assert target is not None
     channel_id, link_puzzle_id, slug_name = target
+    if not channel_id:
+        # hunts.channel_id / puzzles.channel_id can be unset: nowhere to post.
+        return jsonify({"error": "not_found_or_forbidden"}), 404
 
     gated = await _member_channel_gate(user, int(channel_id), hunt)
     if isinstance(gated[1], int):
@@ -479,7 +483,7 @@ async def post_media_to_channel(media_id):
         if len(raw) > _POST_MAX_BYTES:
             raise MediaRejected("too large")
         content_type = validate_image_bytes(raw, enforce_size_limit=False)
-        if content_type not in _POST_EXT or sniff_image_type(raw[:16]) != content_type:
+        if content_type not in _POST_EXT:
             raise MediaRejected("not png/jpeg")
     except MediaRejected:
         return jsonify({"error": "bad_image"}), 400
@@ -487,6 +491,9 @@ async def post_media_to_channel(media_id):
     text = (form.get("content") or "").strip()
     if text.startswith("!"):
         return jsonify({"error": "command"}), 400
+    # Room for the "\n\n[Open in dashboard](link)" suffix inside Discord's 2000.
+    if len(text) > 1500:
+        return jsonify({"error": "too_long"}), 400
     link = urls.image_link(guild_info.get("website_url") or "", hunt["uid"],
                            link_puzzle_id, media_id)
     if link:

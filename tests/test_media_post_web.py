@@ -176,7 +176,8 @@ async def test_evidence_source_puzzle_from_another_hunt_is_404():
 @pytest.mark.asyncio
 async def test_unknown_media_is_404():
     async with _client(media=False) as c:
-        await _refused(c, await _post(c, puzzle_id="11"), 404, "not_found")
+        # Same code as a hidden hunt, so media ids cannot be probed.
+        await _refused(c, await _post(c, puzzle_id="11"), 404, "not_found_or_forbidden")
 
 
 @pytest.mark.asyncio
@@ -255,3 +256,25 @@ async def test_discord_failure_is_502():
         assert resp.status_code == 502
         assert (await resp.get_json())["error"] == "send_failed"
         c.audit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_user_text_over_1500_is_too_long_and_1500_is_accepted():
+    async with _client() as c:
+        await _refused(c, await _post(c, puzzle_id="11", content="x" * 1501), 400, "too_long")
+        resp = await _post(c, puzzle_id="11", content="x" * 1500)
+        assert resp.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_hunt_without_channel_is_404():
+    for chan in (None, 0):
+        async with _client(hunt={**HUNT, "channel_id": chan}, evidence=_evidence(source=None)) as c:
+            await _refused(c, await _post(c, evidence_id="21"), 404, "not_found_or_forbidden")
+
+
+@pytest.mark.asyncio
+async def test_puzzle_without_channel_is_404():
+    for chan in (None, 0):
+        async with _client(puzzles={11: _puzzle(channel_id=chan)}) as c:
+            await _refused(c, await _post(c, puzzle_id="11"), 404, "not_found_or_forbidden")
