@@ -7,7 +7,7 @@ import {
 } from "@tabler/icons-react";
 import type { MarkKind, MarkStyle, MediaMark } from "../types";
 import { useCreateMark, useDeleteMark, useMarkup } from "../api";
-import { normPoint, polylineHitsCircle } from "../lib/canvasMath";
+import { MARKUP_MARGIN, normPoint, polylineHitsCircle } from "../lib/canvasMath";
 import { cycleIndex } from "../lib/cycleIndex";
 import { useWheelZoom } from "../hooks/useZoomPan";
 import { notifyError } from "../util";
@@ -154,7 +154,11 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
    *  surface gives it, but the image sits inside a shrink-wrapped div whose
    *  height is auto — so a percentage max-height on the <img> has nothing to
    *  resolve against. Measuring the frame gives it a real pixel cap. */
-  const { ref: frameSizeRef, height: frameH } = useElementSize();
+  const { ref: frameSizeRef, width: frameW, height: frameH } = useElementSize();
+  /** The image is capped so that it PLUS its blank margin on both sides fits
+   *  the frame at zoom 1. Until the frame is measured, fall back to the old
+   *  caps (the margin then just overflows until the first measurement). */
+  const marginScale = 1 + 2 * MARKUP_MARGIN;
 
   /** Whether Ctrl is currently down, purely so the cursor advertises that a
    *  drag would pan. Window-level because the pointer may be nowhere near the
@@ -211,7 +215,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   const toNorm = useCallback((e: React.PointerEvent): [number, number] | null => {
     const rect = imgRef.current?.getBoundingClientRect();
     if (!rect) return null;
-    return normPoint(e.clientX, e.clientY, rect);
+    return normPoint(e.clientX, e.clientY, rect, MARKUP_MARGIN);
   }, []);
 
   const commitStroke = useCallback(async (points: [number, number][]) => {
@@ -497,10 +501,15 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
         )}
       </Group>
 
-      {/* Three nested boxes, and the nesting is load-bearing:
-          - frame: fixed viewport height, clips, owns the pointer handlers;
-          - fit:   shrink-wraps the image, so it IS the image's box;
-          - img:   sized by max-width/max-height, NOT object-fit.
+      {/* Four nested boxes, and the nesting is load-bearing:
+          - frame:  fixed viewport height, clips, owns the pointer handlers;
+          - margin: carries the zoom/pan transform, and pads the image by
+                    MARKUP_MARGIN of its own size on every side — the shaded
+                    area marks may be drawn in, outside the picture;
+          - fit:    shrink-wraps the image, so it IS the image's box (toNorm
+                    measures this, and the SVG/text layers cover it — marks
+                    beyond 0..1 draw outside it via overflow: visible);
+          - img:    sized by max-width/max-height, NOT object-fit.
 
           object-fit: contain would letterbox INSIDE the element box, so
           getBoundingClientRect() would return the padded box and every stroke
@@ -523,12 +532,17 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
         onPointerCancel={onPointerCancel}
         onPointerLeave={() => setEraserAt(null)}
       >
-       <div style={{ position: "relative", display: "inline-block", lineHeight: 0,
+       <div style={{ display: "inline-block", lineHeight: 0,
+                     padding: `${imgH * MARKUP_MARGIN}px ${imgW * MARKUP_MARGIN}px`,
+                     background: "var(--mantine-color-gray-1)",
+                     outline: "1px dashed var(--mantine-color-gray-4)",
                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                      transformOrigin: "0 0" }}>
+       <div style={{ position: "relative", display: "inline-block", lineHeight: 0 }}>
         <img ref={imgRefs} src={`/api/media/${mediaId}`} alt={alt} draggable={false}
-             style={{ display: "block", maxWidth: "100%",
-                      maxHeight: frameH || "70vh",
+             style={{ display: "block",
+                      maxWidth: frameW ? frameW / marginScale : "100%",
+                      maxHeight: frameH ? frameH / marginScale : "70vh",
                       width: "auto", height: "auto", userSelect: "none" }} />
 
         {/* Normalised coordinates go straight in — the same payoff the region
@@ -536,7 +550,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
             image, so inset:0 is exactly the image's rectangle. */}
         <svg viewBox="0 0 1 1" preserveAspectRatio="none"
              style={{ position: "absolute", inset: 0, width: "100%", height: "100%",
-                      pointerEvents: "none" }}>
+                      pointerEvents: "none", overflow: "visible" }}>
           <defs>
             {COLOURS.map((c) => (
               <marker key={c} id={`arrow-${c.slice(1)}`} viewBox="0 0 10 10"
@@ -565,7 +579,13 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
             aspect ratio. This layer sits in the same shrink-wrapped box, so it
             still lines up with the image and still scales with the zoom
             transform, while the type stays the shape it was drawn as. */}
-        <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
+        {/* The text layer spans the image PLUS its margin (negative insets are
+            percentages of the image box), so a text mark wraps at the margin's
+            right edge rather than the image's — one placed in the right margin
+            would otherwise get a negative width and break after every word. */}
+        <div style={{ position: "absolute", pointerEvents: "none",
+                      left: `${-MARKUP_MARGIN * 100}%`, right: `${-MARKUP_MARGIN * 100}%`,
+                      top: `${-MARKUP_MARGIN * 100}%`, bottom: `${-MARKUP_MARGIN * 100}%`,
                       lineHeight: 1.2 }}>
           {(marks.data ?? []).filter((m) => m.kind === "text").map((m) => {
             const [[x, y]] = m.shape.points;
@@ -574,7 +594,8 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
                 key={m.id}
                 style={{
                   position: "absolute",
-                  left: `${x * 100}%`, top: `${y * 100}%`,
+                  left: `${((x + MARKUP_MARGIN) / marginScale) * 100}%`,
+                  top: `${((y + MARKUP_MARGIN) / marginScale) * 100}%`,
                   // Font size is stored normalised against the image's height,
                   // so ink scales with the picture rather than the viewport.
                   fontSize: (m.shape.size ?? 0.04) * (imgBox.h || 0),
@@ -590,6 +611,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
             );
           })}
         </div>
+       </div>
        </div>
 
         {/* The eraser cursor. It sits outside the transformed div — like the
