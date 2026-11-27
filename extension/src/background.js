@@ -782,6 +782,7 @@ async function maybeReuseBoard(tabId) {
     newTabId: tabId,
     url: newTab.url,
     api: {
+      currentUrl: (id) => chrome.tabs.get(id).then((t) => t.url),
       sendMessage: (id, msg) => chrome.tabs.sendMessage(id, msg),
       update: (id, props) => chrome.tabs.update(id, props),
       focus: (id) => chrome.tabs.get(id).then(focusTab),
