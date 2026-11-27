@@ -135,6 +135,7 @@ class TestClueWithAttachment:
         cog = make_cog(puzzle=puzzle, hunt=hunt)
         cog.service.log_clues = AsyncMock(return_value=[MagicMock(id=1)])
         cog.service.refresh_evidence_safe = AsyncMock()
+        cog.web_refresh_info = AsyncMock()  # attachment -> the pin is refreshed
 
         ctx = make_ctx()
         att = MagicMock()
@@ -164,6 +165,7 @@ class TestClueWithAttachment:
         cog = make_cog(puzzle=None, hunt=hunt)
         cog.service.log_clues = AsyncMock(return_value=[MagicMock(id=1)])
         cog.service.refresh_evidence_safe = AsyncMock()
+        cog.web_refresh_info = AsyncMock()  # attachment -> the pin is refreshed
 
         ctx = make_ctx()
         ctx.message.attachments = []
@@ -198,6 +200,7 @@ class TestClueWithAttachment:
         cog = make_cog(puzzle=make_puzzle(id=5, hunt_id=10), hunt=make_hunt(id=10))
         cog.service.log_clues = AsyncMock(return_value=[MagicMock(id=1)])
         cog.service.refresh_evidence_safe = AsyncMock()
+        cog.web_refresh_info = AsyncMock()  # attachment -> the pin is refreshed
         ctx = make_ctx()
         att = MagicMock()
         att.filename = "crop.png"
@@ -220,6 +223,7 @@ class TestClueWithAttachment:
         cog = make_cog(puzzle=make_puzzle(id=5, hunt_id=10), hunt=make_hunt(id=10))
         cog.service.log_clues = AsyncMock(return_value=[MagicMock(id=1)])
         cog.service.refresh_evidence_safe = AsyncMock()
+        cog.web_refresh_info = AsyncMock()  # attachment -> the pin is refreshed
 
         ctx = make_ctx()
         att = MagicMock()
@@ -246,6 +250,7 @@ class TestClueWithAttachment:
         cog = make_cog(puzzle=make_puzzle(id=5, hunt_id=10), hunt=make_hunt(id=10))
         cog.service.log_clues = AsyncMock(return_value=[MagicMock(id=1)])
         cog.service.refresh_evidence_safe = AsyncMock()
+        cog.web_refresh_info = AsyncMock()  # attachment -> the pin is refreshed
 
         ctx = make_ctx()
         att = MagicMock()
@@ -273,6 +278,7 @@ class TestClueOutsideHunt:
         ctx.message.attachments = []      # unset Mock attrs are truthy — must be a real []
         cog.service.log_clues = AsyncMock()
         cog.service.refresh_evidence_safe = AsyncMock()
+        cog.web_refresh_info = AsyncMock()  # attachment -> the pin is refreshed
 
         await Puzzles.clue.callback(cog, ctx, note="some note")
 

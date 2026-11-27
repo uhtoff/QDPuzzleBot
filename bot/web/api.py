@@ -763,6 +763,7 @@ async def add_evidence():
     if hunt is None:
         assert isinstance(guild_or_status, int)  # the (None, status) branch
         return jsonify({"error": "hunt not found"}), guild_or_status
+    assert isinstance(guild_or_status, dict)  # the (hunt, guild_info) branch
     if hunt["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
     # At most one source. Both set is a client bug -- silently preferring one
@@ -814,6 +815,12 @@ async def add_evidence():
         asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
         if puzzle is not None:
             asyncio.create_task(cog.service.refresh_informs_targets(hunt_obj, puzzle))
+            if media_id is not None:
+                # The puzzle's pin lists its source evidence images. Imported
+                # locally: actions imports from this module's siblings.
+                from bot.web.actions import refresh_pins_for_puzzles
+                await refresh_pins_for_puzzles(
+                    hunt["id"], guild_or_status.get("guild_snowflake"), [puzzle.id])
         # This route replaces the actions blueprint's /clues endpoint as the
         # dashboard's clue-logging path (it is the only one that can log a
         # sourceless or image-only clue, since there is no puzzle id for a

@@ -2098,6 +2098,9 @@ class Puzzles(commands.Cog):
         asyncio.create_task(self.service.refresh_evidence_safe(hunt))
         if puzzle is not None:
             asyncio.create_task(self.service.refresh_informs_targets(hunt, puzzle))
+            if media_id is not None:
+                # The pin lists the puzzle's source evidence images.
+                await self.web_refresh_info(ctx.guild, hunt, puzzle)
         where = f" from **{puzzle.name}**" if puzzle is not None else ""
         what = "Clue" if media_id is None else "Clue with image"
         await ctx.send(f":pencil: {what} logged{where}.")
