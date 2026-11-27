@@ -62,7 +62,9 @@ function newTabLink(href, text) {
 }
 
 // Mentions, shortcodes, bold, code, links and custom emoji as DOM nodes; never innerHTML.
-function appendInline(parent, raw) {
+// With links: false a link is its plain text, for text inside a button (an unread
+// row): a link can't sit inside a button, and its clicks would also work the row.
+function appendInline(parent, raw, { links = true } = {}) {
   const cleaned = rewriteMentions(raw, (id) => channelNames[id] || (id === currentPuzzle?.channel_id ? currentPuzzle.name : null), { keepCustomEmoji: true });
   for (const seg of tokenise(cleaned)) {
     if (seg.emoji) {
@@ -73,7 +75,7 @@ function appendInline(parent, raw) {
       img.title = seg.text;
       parent.append(img);
     } else if (seg.href) {
-      parent.append(newTabLink(seg.href, seg.text));
+      parent.append(links ? newTabLink(seg.href, seg.text) : seg.text);
     } else if (seg.bold || seg.code) {
       const span = document.createElement(seg.code ? "code" : "strong");
       span.textContent = seg.text;
@@ -344,12 +346,12 @@ function renderRow(ch) {
   const name = el("span", "u-name", ch.name);
   if (ch.rounds?.length) name.append(el("span", "u-round", ch.rounds.join(", ")));
   const prev = el("span", "u-prev");
-  appendInline(prev, rowText(ch));
+  appendInline(prev, rowText(ch), { links: false });
   row.append(el("span", "badge", rowBadge(ch)), name, el("span", "u-time", ago(rowTime(ch))), el("span"), prev);
   const extra = rowMessage(ch);
   if (extra) {
     const msg = el("span", "u-prev u-msg");
-    appendInline(msg, extra);
+    appendInline(msg, extra, { links: false });
     row.append(el("span"), msg);
   }
   row.addEventListener("click", (e) => (e.ctrlKey || e.metaKey ? goTo(unreadMsg.huntUid, ch.channel_id) : peekAt(ch)));
