@@ -27,8 +27,10 @@ def _clean_note(note: str) -> str:
 
 
 def images_field_value(images: list[PinImage], base: str, hunt_uid: str,
-                       puzzle_id: int, budget: int) -> str | None:
-    """Link lines for *images* in the given order, or None if nothing fits."""
+                       puzzle_id: int | None, budget: int) -> str | None:
+    """Link lines for *images* in the given order, or None if nothing fits.
+
+    *puzzle_id* None gives image-only links (used for mini puzzles)."""
     if not images or not base:
         return None
     lines = []

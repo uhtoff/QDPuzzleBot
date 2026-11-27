@@ -56,9 +56,21 @@ async def send_as(channel, member, content: str,
     returns the new message id. Mentions are suppressed.
 
     With `file_bytes`, the file is attached. A sent `discord.File` is consumed,
-    so a fresh one is built inside every attempt (the NotFound retry included)."""
+    so a fresh one is built inside every attempt (the NotFound retry included).
+
+    A thread (a mini puzzle's channel) cannot own a webhook: the parent
+    channel's relay hook is used, sending with `thread=` so the message lands
+    in the thread."""
+    target = channel
+    if isinstance(channel, discord.Thread):
+        if channel.parent is None:
+            raise discord.ClientException("Parent channel not found")
+        target = channel.parent
+
     async def _send(hook):
         kwargs = {}
+        if target is not channel:
+            kwargs["thread"] = channel
         if file_bytes is not None:
             kwargs["file"] = discord.File(io.BytesIO(file_bytes), filename=filename)
         return await hook.send(
@@ -70,11 +82,11 @@ async def send_as(channel, member, content: str,
             **kwargs,
         )
 
-    hook = await relay_webhook(channel)
+    hook = await relay_webhook(target)
     try:
         msg = await _send(hook)
     except discord.NotFound:
         # Webhook deleted behind our back: rebuild once and retry once.
-        _hooks.pop(channel.id, None)
-        msg = await _send(await relay_webhook(channel))
+        _hooks.pop(target.id, None)
+        msg = await _send(await relay_webhook(target))
     return msg.id

@@ -67,9 +67,7 @@ def test_none_cases():
 
 def test_only_more_line_when_no_image_line_fits():
     imgs = [PinImage(i, None, False) for i in range(1, 4)]
-    line_len = len(_val(imgs[:1]))
     more_len = len(f"• [+3 more on the dashboard]({BASE}/hunts/{HUNT}?puzzle=7)")
-    assert more_len < line_len + 1 + more_len  # sanity
     value = _val(imgs, budget=more_len + 2)
     assert value == f"• [+3 more on the dashboard]({BASE}/hunts/{HUNT}?puzzle=7)"
 
@@ -84,6 +82,7 @@ def test_whole_message_stays_within_6000():
     cog = _cog()
     puzzle = MagicMock()
     puzzle.id = 7
+    puzzle.parent_puzzle_id = None
     puzzle.additional_sheets = []
     hunt = MagicMock()
     hunt.uid = HUNT
@@ -106,12 +105,62 @@ def test_no_images_embed_when_no_base():
     cog = _cog()
     puzzle = MagicMock()
     puzzle.id = 7
+    puzzle.parent_puzzle_id = None
     puzzle.additional_sheets = []
     hunt = MagicMock()
     hunt.uid = HUNT
     guild_data = MagicMock()
     guild_data.website_url = ""
     cog.service.get_minis.return_value = []
-    with patch("bot.cogs.puzzles.pin_images_for", return_value=[PinImage(1, None, False)]):
+    with patch("bot.cogs.puzzles.pin_images_for", return_value=[PinImage(1, None, False)]) as pif:
         embeds = cog._build_embed_list(embed=discord.Embed(description="d"), puzzle=puzzle, hunt=hunt, guild_data=guild_data)
     assert len(embeds) == 1
+    pif.assert_not_called()  # no DB reads when there is nothing to link to
+
+
+def _embeds_for(puzzle_kwargs, pin_images):
+    cog = _cog()
+    puzzle = MagicMock()
+    puzzle.id = 7
+    puzzle.parent_puzzle_id = None
+    puzzle.additional_sheets = []
+    for k, v in puzzle_kwargs.items():
+        setattr(puzzle, k, v)
+    hunt = MagicMock()
+    hunt.uid = HUNT
+    guild_data = MagicMock()
+    guild_data.website_url = BASE
+    cog.service.get_minis.return_value = []
+    with patch("bot.cogs.puzzles.pin_images_for", **pin_images):
+        return cog._build_embed_list(embed=discord.Embed(description="d"), puzzle=puzzle,
+                                     hunt=hunt, guild_data=guild_data)
+
+
+def _images_value(embeds):
+    return next(f.value for e in embeds for f in e.fields if f.name == "Images")
+
+
+def test_top_level_puzzle_links_carry_the_puzzle():
+    embeds = _embeds_for({}, {"return_value": [PinImage(5, None, False)]})
+    assert _images_value(embeds) == f"• [Image 1]({BASE}/hunts/{HUNT}?puzzle=7&image=5)"
+
+
+def test_mini_links_use_the_image_only_form():
+    # Minis are not in the board's puzzle list: ?puzzle=<mini> would show
+    # "That puzzle no longer exists".
+    embeds = _embeds_for({"parent_puzzle_id": 3},
+                         {"return_value": [PinImage(5, None, False), PinImage(6, None, True)]})
+    assert _images_value(embeds) == (f"• [Image 1]({BASE}/hunts/{HUNT}?image=5)\n"
+                                     f"• [Evidence 1]({BASE}/hunts/{HUNT}?image=6)")
+
+
+def test_mini_more_line_points_at_the_board():
+    imgs = [PinImage(i, None, False) for i in range(1, 4)]
+    more = f"• [+3 more on the dashboard]({BASE}/hunts/{HUNT})"
+    assert images_field_value(imgs, BASE, HUNT, None, len(more) + 2) == more
+
+
+def test_a_failing_image_lookup_never_stops_the_pin():
+    embeds = _embeds_for({}, {"side_effect": RuntimeError("db down")})
+    assert len(embeds) == 1
+    assert embeds[0].description == "d"

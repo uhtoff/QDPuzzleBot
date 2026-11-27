@@ -149,3 +149,34 @@ async def test_send_as_retry_builds_a_fresh_file():
     second = fresh.send.await_args.kwargs["file"]
     assert first is not second
     assert second.fp.read() == b"BYTES"
+
+
+@pytest.mark.asyncio
+async def test_send_as_into_a_thread_uses_the_parent_hook_and_targets_the_thread():
+    ours = _hook("Puzzbot relay", BOT_ID)
+    ours.send.return_value = SimpleNamespace(id=77)
+    parent = _channel([ours], cid=10)
+    thread = MagicMock(spec=discord.Thread)
+    thread.id = 11
+    thread.parent = parent
+    member = SimpleNamespace(display_name="Al", display_avatar=SimpleNamespace(url="u"))
+    assert await channel_relay.send_as(thread, member, "hi") == 77
+    assert ours.send.await_args.kwargs["thread"] is thread
+    # The hook lives on (and is cached for) the parent channel.
+    assert channel_relay._hooks == {10: ours}
+
+
+@pytest.mark.asyncio
+async def test_thread_retry_on_not_found_rebuilds_the_parent_hook():
+    stale = _hook("Puzzbot relay", BOT_ID)
+    stale.send.side_effect = discord.NotFound(MagicMock(status=404, reason="x"), "gone")
+    parent = _channel([stale], cid=10)
+    fresh = parent.create_webhook.return_value
+    fresh.send.return_value = SimpleNamespace(id=78)
+    thread = MagicMock(spec=discord.Thread)
+    thread.id = 11
+    thread.parent = parent
+    member = SimpleNamespace(display_name="Al", display_avatar=SimpleNamespace(url="u"))
+    parent.webhooks = AsyncMock(side_effect=[[stale], []])
+    assert await channel_relay.send_as(thread, member, "hi") == 78
+    assert fresh.send.await_args.kwargs["thread"] is thread

@@ -18,8 +18,9 @@ GUILD_INFO = {"guild_snowflake": 777, "website_url": "https://dash.example/"}
 URL = "/api/media/50/post"
 
 
-def _puzzle(pid=11, hunt_id=4, channel_id=555, name="Cool Puzzle"):
-    return SimpleNamespace(id=pid, hunt_id=hunt_id, channel_id=channel_id, name=name)
+def _puzzle(pid=11, hunt_id=4, channel_id=555, name="Cool Puzzle", parent_puzzle_id=None):
+    return SimpleNamespace(id=pid, hunt_id=hunt_id, channel_id=channel_id, name=name,
+                           parent_puzzle_id=parent_puzzle_id)
 
 
 def _evidence(eid=21, hunt_id=4, media_id=50, source=11):
@@ -29,15 +30,18 @@ def _evidence(eid=21, hunt_id=4, media_id=50, source=11):
 @asynccontextmanager
 async def _client(*, hunt=HUNT, visible=True, view=True, send=True, media=True,
                   puzzles=None, own_images=(50,), ev_images=(), evidence=None,
-                  guild_info=GUILD_INFO, send_side_effect=None):
+                  guild_info=GUILD_INFO, send_side_effect=None, thread=False, thread_send=True):
     puzzles = {11: _puzzle()} if puzzles is None else puzzles
     member = MagicMock()
     member.is_timed_out.return_value = False
-    channel = MagicMock()
+    # A mini puzzle's channel is a thread: guild.get_channel() cannot see it.
+    channel = MagicMock(spec=discord.Thread) if thread else MagicMock()
     channel.id = 555
-    channel.permissions_for.return_value = SimpleNamespace(view_channel=view, send_messages=send)
+    channel.permissions_for.return_value = SimpleNamespace(
+        view_channel=view, send_messages=send, send_messages_in_threads=thread_send)
     guild = MagicMock()
-    guild.get_channel.return_value = channel
+    guild.get_channel.return_value = None if thread else channel
+    guild.get_channel_or_thread.return_value = channel
     app = make_web_app("api", cog=MagicMock(), get_guild=guild)
     send_as = AsyncMock(return_value=999, side_effect=send_side_effect)
     audit = AsyncMock()
@@ -278,3 +282,48 @@ async def test_puzzle_without_channel_is_404():
     for chan in (None, 0):
         async with _client(puzzles={11: _puzzle(channel_id=chan)}) as c:
             await _refused(c, await _post(c, puzzle_id="11"), 404, "not_found_or_forbidden")
+
+
+MINI = {11: _puzzle(name="Tiny", parent_puzzle_id=3)}
+
+
+@pytest.mark.asyncio
+async def test_post_for_a_mini_goes_into_its_thread_with_an_image_only_link():
+    async with _client(puzzles=MINI, thread=True) as c:
+        resp = await _post(c, puzzle_id="11", content="see")
+        assert resp.status_code == 201
+        args = c.send_as.await_args.args
+        assert args[0] is c.channel
+        # Minis are not in the board's puzzle list, so no puzzle param.
+        assert args[2] == "see\n\n[Open in dashboard](https://dash.example/hunts/huntuid?image=50)"
+        assert args[4] == "tiny-markup.png"
+        assert "puzzle_id=11" not in c.audit.await_args.kwargs.get("detail", "")
+        assert c.audit.await_args.kwargs["puzzle_id"] == 11
+
+
+@pytest.mark.asyncio
+async def test_mini_source_evidence_link_is_image_only():
+    async with _client(puzzles=MINI, thread=True, evidence=_evidence(), own_images=()) as c:
+        resp = await _post(c, evidence_id="21")
+        assert resp.status_code == 201
+        assert c.send_as.await_args.args[2] == \
+            "[Open in dashboard](https://dash.example/hunts/huntuid?image=50)"
+
+
+@pytest.mark.asyncio
+async def test_mini_thread_without_thread_send_permission_is_403():
+    async with _client(puzzles=MINI, thread=True, thread_send=False) as c:
+        await _refused(c, await _post(c, puzzle_id="11"), 403, "forbidden")
+
+
+@pytest.mark.asyncio
+async def test_mini_thread_without_view_is_403():
+    async with _client(puzzles=MINI, thread=True, view=False) as c:
+        await _refused(c, await _post(c, puzzle_id="11"), 403, "forbidden")
+
+
+@pytest.mark.asyncio
+async def test_thread_with_uncached_parent_is_404():
+    async with _client(puzzles=MINI, thread=True) as c:
+        c.channel.permissions_for.side_effect = discord.ClientException("Parent channel not found")
+        await _refused(c, await _post(c, puzzle_id="11"), 404, "not_found_or_forbidden")

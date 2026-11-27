@@ -3526,10 +3526,20 @@ class Puzzles(commands.Cog):
         if guild_data is None and ctx is not None:
             guild_data = self.get_guild_data(ctx)
         base = (getattr(guild_data, "website_url", "") or "").rstrip("/")
+        if not base:
+            return None
         other = sum(len(e) for e in embed_list)
         budget = min(1024, 6000 - other - len("Images") - 50)
-        value = images_field_value(
-            pin_images_for(puzzle.id), base, hunt.uid or str(hunt.id), puzzle.id, budget)
+        # A mini puzzle is not in the board's puzzle list, so its links use the
+        # image-only form (?puzzle=<mini> would say the puzzle no longer exists).
+        link_puzzle_id = None if puzzle.parent_puzzle_id is not None else puzzle.id
+        try:
+            value = images_field_value(
+                pin_images_for(puzzle.id), base, hunt.uid or str(hunt.id), link_puzzle_id, budget)
+        except Exception:
+            # Optional extra: never let it stop a welcome/pin message.
+            logger.exception("images field failed for puzzle %s", puzzle.id)
+            return None
         if not value:
             return None
         images_embed = discord.Embed()

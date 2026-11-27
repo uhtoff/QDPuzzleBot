@@ -325,24 +325,41 @@ async def channel_messages(channel_id):
     return jsonify({"messages": messages})
 
 
-async def _member_channel_gate(user, channel_id: int, hunt) -> tuple[Any, Any]:
+async def _member_channel_gate(user, channel_id: int, hunt, *,
+                               allow_thread: bool = False) -> tuple[Any, Any]:
     """The Discord-side gate for posting into a channel as `user`.
 
     Returns (channel, member) when the member may post there, else a ready
     (response, status) pair. A relay webhook ignores Discord permissions, so
     the guild/channel/member lookup, the timeout and view_channel +
     send_messages are all enforced here. Shared by every route that posts
-    on a member's behalf."""
+    on a member's behalf.
+
+    With `allow_thread`, `channel_id` may name a thread (a mini puzzle's
+    channel): it is resolved with get_channel_or_thread and gated as Discord
+    gates a thread — view_channel plus send_messages_in_threads, both from
+    Thread.permissions_for (the parent's permissions, adjusted)."""
     guilds_map = await data.get_guilds_map()
     snowflake = guilds_map.get(hunt["guild_id"], {}).get("guild_snowflake")
     guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
-    channel = guild.get_channel(channel_id) if guild is not None else None
+    if guild is None:
+        channel = None
+    elif allow_thread:
+        channel = guild.get_channel_or_thread(channel_id)
+    else:
+        channel = guild.get_channel(channel_id)
     member = await get_or_fetch_member(guild, int(user["id"])) if channel is not None else None
     if guild is None or channel is None or member is None:
         return jsonify({"error": "not_found_or_forbidden"}), 404
 
-    perms = channel.permissions_for(member)
-    if member.is_timed_out() or not (perms.view_channel and perms.send_messages):
+    is_thread = isinstance(channel, discord.Thread)
+    try:
+        perms = channel.permissions_for(member)
+    except discord.ClientException:
+        # Thread.permissions_for raises when the parent channel is not cached.
+        return jsonify({"error": "not_found_or_forbidden"}), 404
+    can_send = perms.send_messages_in_threads if is_thread else perms.send_messages
+    if member.is_timed_out() or not (perms.view_channel and can_send):
         return jsonify({"error": "forbidden"}), 403
     return channel, member
 
@@ -393,10 +410,14 @@ _POST_EXT = {"image/png": "png", "image/jpeg": "jpg"}
 
 
 async def _post_target(hunt, media_id, form):
-    """Resolve and check (channel_id, puzzle_id_for_link, slug_name) for a
-    media post. The client's ids are untrusted: every one must belong to
-    `hunt`, and the media must really be on the named puzzle/evidence.
-    Returns (None, (response, status)) on any mismatch."""
+    """Resolve and check (channel_id, puzzle_id, slug_name, link_puzzle_id)
+    for a media post. The client's ids are untrusted: every one must belong
+    to `hunt`, and the media must really be on the named puzzle/evidence.
+    Returns (None, (response, status)) on any mismatch.
+
+    link_puzzle_id is the dashboard link's puzzle param: None (the
+    image-only form) for a mini puzzle, which is not in the board's puzzle
+    list, so ?puzzle=<mini> would show "That puzzle no longer exists"."""
     from bot.store import EvidenceJsonDb, PuzzleImageJsonDb, PuzzleJsonDb
     bad = (None, (jsonify({"error": "not_on_puzzle"}), 404))
     raw_p, raw_e = form.get("puzzle_id"), form.get("evidence_id")
@@ -411,6 +432,10 @@ async def _post_target(hunt, media_id, form):
         puzzle = PuzzleJsonDb.get_by_attr(id=pid)
         return puzzle if puzzle is not None and puzzle.hunt_id == hunt["id"] else None
 
+    def _found(puzzle):
+        link_id = None if puzzle.parent_puzzle_id is not None else puzzle.id
+        return (puzzle.channel_id, puzzle.id, puzzle.name, link_id), None
+
     if raw_p is not None:
         puzzle = _own_puzzle(target_id)
         if puzzle is None:
@@ -419,17 +444,17 @@ async def _post_target(hunt, media_id, form):
         on_puzzle |= {e.media_id for e in EvidenceJsonDb.get_image_evidence_for_puzzle(puzzle.id)}
         if media_id not in on_puzzle:
             return bad
-        return (puzzle.channel_id, puzzle.id, puzzle.name), None
+        return _found(puzzle)
 
     evidence = EvidenceJsonDb.get_by_id(target_id)
     if evidence is None or evidence.hunt_id != hunt["id"] or evidence.media_id != media_id:
         return bad
     if evidence.source_puzzle_id is None:
-        return (hunt["channel_id"], None, hunt["name"]), None
+        return (hunt["channel_id"], None, hunt["name"], None), None
     puzzle = _own_puzzle(evidence.source_puzzle_id)
     if puzzle is None:
         return bad
-    return (puzzle.channel_id, puzzle.id, puzzle.name), None
+    return _found(puzzle)
 
 
 @api_bp.route("/media/<int:media_id>/post", methods=["POST"])
@@ -468,12 +493,12 @@ async def post_media_to_channel(media_id):
     if err is not None:
         return err
     assert target is not None
-    channel_id, link_puzzle_id, slug_name = target
+    channel_id, target_puzzle_id, slug_name, link_puzzle_id = target
     if not channel_id:
         # hunts.channel_id / puzzles.channel_id can be unset: nowhere to post.
         return jsonify({"error": "not_found_or_forbidden"}), 404
 
-    gated = await _member_channel_gate(user, int(channel_id), hunt)
+    gated = await _member_channel_gate(user, int(channel_id), hunt, allow_thread=True)
     if isinstance(gated[1], int):
         return gated
     channel, member = gated
@@ -508,7 +533,7 @@ async def post_media_to_channel(media_id):
     except discord.HTTPException:
         logger.exception("relay image post failed for media %s", media_id)
         return jsonify({"error": "send_failed"}), 502
-    await _audit("post_image", puzzle_id=link_puzzle_id, hunt_uid=hunt["uid"],
+    await _audit("post_image", puzzle_id=target_puzzle_id, hunt_uid=hunt["uid"],
                  detail=f"media={media_id} channel={channel_id} message={message_id}")
     return jsonify({"id": str(message_id)}), 201
 
