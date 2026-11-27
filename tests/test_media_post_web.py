@@ -97,7 +97,7 @@ async def test_post_via_puzzle_own_image():
         assert await resp.get_json() == {"id": "999"}
         args = c.send_as.await_args.args
         assert args[0] is c.channel and args[1] is c.member
-        assert args[2] == "look\n\n[Open in dashboard](https://dash.example/hunts/huntuid?puzzle=11&image=50)"
+        assert args[2] == "look\n\n[Open in dashboard](<https://dash.example/hunts/huntuid?puzzle=11&image=50>)"
         assert args[3] == PNG
         assert args[4] == "cool-puzzle-markup.png"
         c.audit.assert_awaited_once()
@@ -109,7 +109,7 @@ async def test_post_via_puzzle_evidence_image_jpeg():
         resp = await _post(c, JPG, puzzle_id="11")
         assert resp.status_code == 201
         args = c.send_as.await_args.args
-        assert args[2] == "[Open in dashboard](https://dash.example/hunts/huntuid?puzzle=11&image=50)"
+        assert args[2] == "[Open in dashboard](<https://dash.example/hunts/huntuid?puzzle=11&image=50>)"
         assert args[4] == "cool-puzzle-markup.jpg"
 
 
@@ -129,7 +129,7 @@ async def test_post_via_evidence_without_source_goes_to_hunt_channel():
         assert resp.status_code == 201
         c.channel.permissions_for.assert_called()
         text = c.send_as.await_args.args[2]
-        assert text.endswith("[Open in dashboard](https://dash.example/hunts/huntuid?image=50)")
+        assert text.endswith("[Open in dashboard](<https://dash.example/hunts/huntuid?image=50>)")
         assert c.send_as.await_args.args[4] == "my-hunt-markup.png"
 
 
@@ -295,7 +295,7 @@ async def test_post_for_a_mini_goes_into_its_thread_with_an_image_only_link():
         args = c.send_as.await_args.args
         assert args[0] is c.channel
         # Minis are not in the board's puzzle list, so no puzzle param.
-        assert args[2] == "see\n\n[Open in dashboard](https://dash.example/hunts/huntuid?image=50)"
+        assert args[2] == "see\n\n[Open in dashboard](<https://dash.example/hunts/huntuid?image=50>)"
         assert args[4] == "tiny-markup.png"
         assert "puzzle_id=11" not in c.audit.await_args.kwargs.get("detail", "")
         assert c.audit.await_args.kwargs["puzzle_id"] == 11
@@ -307,7 +307,7 @@ async def test_mini_source_evidence_link_is_image_only():
         resp = await _post(c, evidence_id="21")
         assert resp.status_code == 201
         assert c.send_as.await_args.args[2] == \
-            "[Open in dashboard](https://dash.example/hunts/huntuid?image=50)"
+            "[Open in dashboard](<https://dash.example/hunts/huntuid?image=50>)"
 
 
 @pytest.mark.asyncio

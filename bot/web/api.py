@@ -516,13 +516,14 @@ async def post_media_to_channel(media_id):
     text = (form.get("content") or "").strip()
     if text.startswith("!"):
         return jsonify({"error": "command"}), 400
-    # Room for the "\n\n[Open in dashboard](link)" suffix inside Discord's 2000.
+    # Room for the "\n\n[Open in dashboard](<link>)" suffix inside Discord's 2000.
+    # The angle brackets stop Discord unfurling the link into a site preview card.
     if len(text) > 1500:
         return jsonify({"error": "too_long"}), 400
     link = urls.image_link(guild_info.get("website_url") or "", hunt["uid"],
                            link_puzzle_id, media_id)
     if link:
-        text = (text + "\n\n" if text else "") + f"[Open in dashboard]({link})"
+        text = (text + "\n\n" if text else "") + f"[Open in dashboard](<{link}>)"
     if len(text) > 2000:
         return jsonify({"error": "too_long"}), 400
 
