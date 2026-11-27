@@ -36,7 +36,7 @@ import {
   useUploadMedia,
 } from "../api";
 import { imageFromClipboard, isTextEntryTarget, notifyError } from "../util";
-import { resolveDeepLink, stripItems } from "../lib/stripItems";
+import { ARCHIVED_NOTICE, resolveDeepLink, stripItems } from "../lib/stripItems";
 import { ConfirmModal } from "./ConfirmModal";
 import { MarkupModal } from "./MarkupModal";
 
@@ -65,7 +65,7 @@ function EvidenceThumb({
   onRemove: (item: EvidenceItem) => void;
 }) {
   const thumb = (
-    <Image src={item.media_url ?? undefined} alt="" h={64} w={64} fit="cover" radius="sm" />
+    <Image src={item.media_url ?? undefined} alt={item.note} h={64} w={64} fit="cover" radius="sm" />
   );
   return (
     <Box style={{ position: "relative" }} title={item.note || undefined}>
@@ -182,13 +182,13 @@ function SortableThumb({
  *  the board payload, which every client gets pushed over the WS for every
  *  puzzle). Click opens MarkupModal; drag reorders; FileButton adds one. */
 export function PuzzleImages({ puzzleId, puzzleName, uid, editable, openMediaId = null, onOpened }: Props) {
-  const { data: images = [], isLoading } = usePuzzleImages(puzzleId);
+  const { data: images = [], isLoading, isError: imagesError } = usePuzzleImages(puzzleId);
   const uploadMedia = useUploadMedia(uid);
   const attach = useAttachPuzzleImage(puzzleId);
   const reorder = useReorderPuzzleImages(puzzleId);
   const detach = useDetachPuzzleImage(puzzleId);
 
-  const { data: evidence = [], isLoading: evidenceLoading } = useEvidence(uid);
+  const { data: evidence = [], isLoading: evidenceLoading, isError: evidenceError } = useEvidence(uid);
   const deleteEvidence = useDeleteEvidence(uid);
 
   // Media id being edited; own images and evidence both open the same editor.
@@ -205,15 +205,23 @@ export function PuzzleImages({ puzzleId, puzzleName, uid, editable, openMediaId 
   // Deep link: act once both lists have loaded, then tell the parent it is done.
   useEffect(() => {
     if (openMediaId == null || isLoading || evidenceLoading) return;
+    // A failed query would make a real image look gone; skip rather than lie.
+    if (imagesError || evidenceError) {
+      onOpened?.();
+      return;
+    }
     const r = resolveDeepLink(
       { puzzleId, mediaId: openMediaId },
       [{ id: puzzleId }],
       stripItems(images, evidence, puzzleId),
     );
     if (r.notice) notifications.show({ message: r.notice, color: "yellow" });
-    else if (r.mediaId != null && editable) setMarkupMediaId(r.mediaId);
+    else if (r.mediaId != null) {
+      if (editable) setMarkupMediaId(r.mediaId);
+      else notifications.show({ message: ARCHIVED_NOTICE, color: "yellow" });
+    }
     onOpened?.();
-  }, [openMediaId, isLoading, evidenceLoading, images, evidence, puzzleId, editable, onOpened]);
+  }, [openMediaId, isLoading, evidenceLoading, imagesError, evidenceError, images, evidence, puzzleId, editable, onOpened]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 

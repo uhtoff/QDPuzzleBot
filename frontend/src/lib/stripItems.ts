@@ -22,6 +22,8 @@ export function stripItems(
   return [...ownItems, ...evItems];
 }
 
+export const ARCHIVED_NOTICE = "This hunt is archived \u2014 the image can't be marked up";
+
 export function stripItemMediaId(item: StripItem): number | null {
   return item.kind === "own" ? item.image.media_id : item.item.media_id;
 }
@@ -32,7 +34,8 @@ export function resolveDeepLink(
   items: StripItem[],
 ): { puzzleId: number | null; mediaId: number | null; notice: string | null } {
   if (link.puzzleId == null || !puzzles.some((p) => p.id === link.puzzleId)) {
-    return { puzzleId: null, mediaId: null, notice: "That puzzle no longer exists" };
+    // The image may still exist on its own, so keep it to open image-only.
+    return { puzzleId: null, mediaId: link.mediaId, notice: "That puzzle no longer exists" };
   }
   if (link.mediaId == null) {
     return { puzzleId: link.puzzleId, mediaId: null, notice: null };

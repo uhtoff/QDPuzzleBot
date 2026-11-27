@@ -33,7 +33,7 @@ import { CreateControls } from "../components/CreateControls";
 import { PuzzleDrawer } from "../components/PuzzleDrawer";
 import { MarkupModal } from "../components/MarkupModal";
 import { parseBoardLink } from "../lib/deepLink";
-import { resolveDeepLink } from "../lib/stripItems";
+import { ARCHIVED_NOTICE, resolveDeepLink } from "../lib/stripItems";
 import { ChatViewer } from "../components/ChatViewer";
 import { SolveModal } from "../components/PuzzleEditCells";
 import { EvidencePanel } from "../components/EvidencePanel";
@@ -312,15 +312,25 @@ export default function HuntBoard() {
   useEffect(() => {
     if (!rawData || searchParams.size === 0) return;
     const link = parseBoardLink(searchParams.toString());
+    const archived = rawData.hunt.archived;
+    let imageOnly: number | null = null;
     if (link.puzzleId != null) {
-      const r = resolveDeepLink({ puzzleId: link.puzzleId, mediaId: null }, allPuzzles, []);
-      if (r.notice) notifications.show({ message: r.notice, color: "yellow" });
-      else {
+      const r = resolveDeepLink(link, allPuzzles, []);
+      if (r.puzzleId == null) {
+        // Unknown puzzle: say so, but still open the image on its own.
+        notifications.show({ message: r.notice ?? "", color: "yellow" });
+        imageOnly = r.mediaId;
+      } else {
+        // The strip resolves the image itself (it owns the image lists).
         setNotesPuzzleId(r.puzzleId);
         setDeepMediaId(link.mediaId);
       }
-    } else if (link.mediaId != null) {
-      setBoardMediaId(link.mediaId);
+    } else {
+      imageOnly = link.mediaId;
+    }
+    if (imageOnly != null) {
+      if (archived) notifications.show({ message: ARCHIVED_NOTICE, color: "yellow" });
+      else setBoardMediaId(imageOnly);
     }
     setSearchParams({}, { replace: true });
   }, [rawData, allPuzzles, searchParams, setSearchParams]);
@@ -534,7 +544,7 @@ export default function HuntBoard() {
         })()}
       </Box>
 
-      <PuzzleDrawer puzzle={notesPuzzle} detail={data} voice={voice} onClose={() => setNotesPuzzleId(null)}
+      <PuzzleDrawer puzzle={notesPuzzle} detail={data} voice={voice} onClose={() => { setNotesPuzzleId(null); setDeepMediaId(null); }}
         openMediaId={deepMediaId}
         onMediaOpened={() => setDeepMediaId(null)}
       />

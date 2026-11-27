@@ -73,10 +73,15 @@ describe("resolveDeepLink", () => {
     });
   });
 
-  it("nulls everything and warns for an unknown puzzle", () => {
-    const r = resolveDeepLink({ puzzleId: 99, mediaId: 101 }, puzzles, list);
-    expect(r.puzzleId).toBeNull();
-    expect(r.mediaId).toBeNull();
-    expect(r.notice).toBe("That puzzle no longer exists");
+  it("warns for an unknown puzzle but keeps the image to open on its own", () => {
+    expect(resolveDeepLink({ puzzleId: 99, mediaId: 101 }, puzzles, list)).toEqual({
+      puzzleId: null, mediaId: 101, notice: "That puzzle no longer exists",
+    });
+  });
+
+  it("nulls everything and warns for an unknown puzzle with no image", () => {
+    expect(resolveDeepLink({ puzzleId: 99, mediaId: null }, puzzles, list)).toEqual({
+      puzzleId: null, mediaId: null, notice: "That puzzle no longer exists",
+    });
   });
 });
