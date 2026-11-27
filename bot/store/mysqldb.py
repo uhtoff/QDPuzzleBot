@@ -1417,6 +1417,14 @@ class MySQLEvidenceDb(_MySQLBaseDb):
         rows = self._fetch_all(sql, params)
         return [EvidenceData.import_dict(r) for r in rows]
 
+    def get_image_evidence_for_puzzle(self, source_puzzle_id: int):
+        """Evidence items with an image whose source is this puzzle, oldest first."""
+        rows = self._fetch_all(
+            "SELECT * FROM evidence_items WHERE source_puzzle_id = %s"
+            " AND media_id IS NOT NULL ORDER BY created_at ASC, id ASC",
+            (source_puzzle_id,))
+        return [EvidenceData.import_dict(r) for r in rows]
+
     def get_by_id(self, item_id: int):
         """Return one EvidenceData by id, or None if missing."""
         row = self._fetch_one("SELECT * FROM evidence_items WHERE id = %s", (item_id,))
