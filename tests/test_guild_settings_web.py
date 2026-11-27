@@ -237,20 +237,22 @@ def guilds_list_web():
     db = MagicMock()
     db.get.return_value = settings
     db.get_cached.return_value = settings
+    guild_row = {"guild_snowflake": SNOWFLAKE, "guild_name": "Team A",
+                 "website_url": "", "use_voice_channels": False}
     patches = [
         patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
         patch("bot.web.api.resolve_membership",
               AsyncMock(return_value=({SNOWFLAKE}, {SNOWFLAKE: {RUNNERS_ID}}))),
         patch("bot.web.api.user_can_manage", AsyncMock(return_value=True)),
         patch("bot.web.api.data.get_guilds_map", AsyncMock(return_value={
-            GUILD_ROW_ID: {"guild_snowflake": SNOWFLAKE, "guild_name": "Team A",
-                           "website_url": ""},
+            GUILD_ROW_ID: guild_row,
         })),
         patch("bot.store.GuildSettingsDb", db),
     ]
     start_patches(patches)
     try:
-        yield SimpleNamespace(client=app.test_client(), settings=settings)
+        yield SimpleNamespace(client=app.test_client(), settings=settings,
+                              guild_row=guild_row)
     finally:
         stop_patches(patches)
 
@@ -311,3 +313,11 @@ async def test_archive_category_round_trips_and_is_validated(web):
     assert resp.status_code == 400
     assert await resp.get_json() == {"error": "bad_value", "field": "archive_category"}
     assert web.settings.archive_category == "Old hunts"
+
+
+@pytest.mark.parametrize("on", [True, False])
+async def test_guild_list_carries_the_servers_voice_default(guilds_list_web, on):
+    """The New hunt form starts its voice checkbox from this, as !hunt does."""
+    guilds_list_web.guild_row["use_voice_channels"] = on
+    body = await (await guilds_list_web.client.get("/api/guilds?admin=1")).get_json()
+    assert body["guilds"][0]["voice_per_puzzle_default"] is on

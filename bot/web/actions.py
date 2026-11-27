@@ -2123,14 +2123,23 @@ async def _guild_settings_ctx(guild_id):
     return (row, guild, settings), None
 
 
-# --- Team-server setup (owner or Admin tier on the team server) -------------
+# --- Team-server setup (owner or Admin tier there, or a hub admin) ----------
 
 async def _team_setup_ctx(guild_id):
-    """Resolve (guild_row, guild, member) for the setup routes, or an error tuple.
+    """Resolve (guild_row, guild, actor, requester) for the setup routes, or an
+    error tuple.
 
     Not require_admin: a freshly cloned server's owner usually holds no `mod`
     yet, so the gate is !setup_server's own -- the server's owner, or anyone
-    holding the Admin tier there."""
+    holding the Admin tier there. Then *actor* is that member and *requester*
+    is None.
+
+    Failing that, a hub admin who isn't (an admin) in the server may still set
+    it up -- setup is often done from the generic account while the mod is
+    logged in to the dashboard as themselves. Then *actor* is the server's
+    owner (it seeds the team role) and *requester* is the dashboard user;
+    the routes must still check _hub_eligible for each hub, so only a hub the
+    owner owns or is an admin of can be used."""
     from bot.core import role_gate
     guilds_map = await web_data.get_guilds_map()
     row = guilds_map.get(guild_id)
@@ -2141,39 +2150,30 @@ async def _team_setup_ctx(guild_id):
     if guild is None:
         return None, (jsonify({"error": "bot_unavailable"}), 503)
     user_id = int((current_user() or {}).get("id") or 0)
-    member = guild.get_member(user_id)
-    if member is None:
-        try:
-            member = await guild.fetch_member(user_id)
-        except discord.NotFound:
-            member = None
-        except discord.HTTPException:
-            return None, (jsonify({"error": "discord_unavailable"}), 503)
-    if member is None:
-        return None, (jsonify({"error": "not_a_member"}), 403)
-    if member.id != guild.owner_id and not role_gate.member_holds_tier(
-            {r.id for r in member.roles}, guild, ADMIN_ROLES):
-        return None, (jsonify({"error": "not_admin"}), 403)
-    return (row, guild, member), None
+    try:
+        member = await _guild_member(guild, user_id)
+    except discord.HTTPException:
+        return None, (jsonify({"error": "discord_unavailable"}), 503)
+    if member is not None and (member.id == guild.owner_id or role_gate.member_holds_tier(
+            {r.id for r in member.roles}, guild, ADMIN_ROLES)):
+        return (row, guild, member, None), None
+    refusal = (jsonify({"error": "not_a_member" if member is None else "not_admin"}), 403)
+    try:
+        owner = await _guild_member(guild, guild.owner_id)
+    except discord.HTTPException:
+        return None, (jsonify({"error": "discord_unavailable"}), 503)
+    if owner is None:
+        return None, refusal
+    requester = discord.Object(id=user_id)
+    for hub in _candidate_hubs(bot_app().bot, guild):
+        if await _hub_eligible(hub, user_id, guild, owner_must_be_there=True):
+            return (row, guild, owner, requester), None
+    return None, refusal
 
 
-@actions_bp.route("/guilds/<int:guild_id>/setup", methods=["GET"])
-@login_required
-async def get_guild_setup(guild_id):
-    """What the setup page needs: template problems, a prefill from a partly
-    finished setup, and the hubs the viewer may set this server up under."""
-    from bot.core import hunt_archive, role_gate, role_panel, server_setup
-    resolved, err = await _team_setup_ctx(guild_id)
-    if err:
-        return err
-    assert resolved is not None
-    _row, guild, member = resolved
-    bot = bot_app().bot
-    settings = GuildSettingsDb.get(guild.id)
-    if settings is None:
-        return jsonify({"error": "guild_not_found"}), 404
-
-    hubs = []
+def _candidate_hubs(bot, guild):
+    """The bot's servers that *guild* could be set up under: not itself, not a
+    team server already set up, and not one running a team hunt."""
     for hub in bot.guilds:
         if hub.id == guild.id:
             continue
@@ -2182,12 +2182,58 @@ async def get_guild_setup(guild_id):
             continue
         if HuntJsonDb.live_team_hunt_for_guild(hub.id) is not None:
             continue
+        yield hub
+
+
+async def _guild_member(guild, user_id):
+    """*user_id*'s Member on *guild*, or None. HTTPException propagates."""
+    member = guild.get_member(user_id)
+    if member is None:
         try:
-            hub_user = await hunt_archive.hub_member(hub, member.id)
-        except discord.HTTPException:
-            continue
+            member = await guild.fetch_member(user_id)
+        except discord.NotFound:
+            member = None
+    return member
+
+
+async def _hub_eligible(hub, user_id, guild, *, owner_must_be_there):
+    """Whether *user_id* may set *guild* up under *hub*: they hold the Admin
+    tier there and, when *owner_must_be_there* (a requester outside *guild*),
+    the server's owner owns *hub* or holds its Admin tier too. A Discord error counts as no."""
+    from bot.core import hunt_archive, role_gate
+    try:
+        hub_user = await hunt_archive.hub_member(hub, user_id)
         if hub_user is None or not role_gate.member_holds_tier(
                 {r.id for r in hub_user.roles}, hub, ADMIN_ROLES):
+            return False
+        if owner_must_be_there:
+            return await hunt_archive.owner_runs_hub(hub, guild)
+    except discord.HTTPException:
+        return False
+    return True
+
+
+@actions_bp.route("/guilds/<int:guild_id>/setup", methods=["GET"])
+@login_required
+async def get_guild_setup(guild_id):
+    """What the setup page needs: template problems, a prefill from a partly
+    finished setup, and the hubs the viewer may set this server up under."""
+    from bot.core import role_gate, role_panel, server_setup
+    resolved, err = await _team_setup_ctx(guild_id)
+    if err:
+        return err
+    assert resolved is not None
+    _row, guild, member, requester = resolved
+    user_id = (requester or member).id
+    bot = bot_app().bot
+    settings = GuildSettingsDb.get(guild.id)
+    if settings is None:
+        return jsonify({"error": "guild_not_found"}), 404
+
+    hubs = []
+    for hub in _candidate_hubs(bot, guild):
+        if not await _hub_eligible(hub, user_id, guild,
+                                   owner_must_be_there=requester is not None):
             continue
         admin_ids = role_gate.tier_role_ids(hub, ADMIN_ROLES)
         roles = sorted(
@@ -2286,7 +2332,12 @@ async def post_guild_setup(guild_id):
     if err:
         return err
     assert resolved is not None
-    _row, guild, member = resolved
+    _row, guild, member, requester = resolved
+    if requester is not None:
+        hub = next((h for h in _candidate_hubs(bot_app().bot, guild) if h.id == hub_id), None)
+        if hub is None or not await _hub_eligible(hub, requester.id, guild,
+                                                  owner_must_be_there=True):
+            return jsonify({"error": "not_admin"}), 403
     cog = puzzles_cog()
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
@@ -2299,7 +2350,8 @@ async def post_guild_setup(guild_id):
         password=body.get("password", ""),
         create_solved_sheet=body.get("create_solved_sheet", False),
         sheet_mode=sheet_mode, multi_team=body.get("multi_team", False),
-        invites_by_dashboard=bool(body.get("send_invites")), via_dashboard=True)
+        invites_by_dashboard=bool(body.get("send_invites")), via_dashboard=True,
+        requester=requester)
 
     invites = None
     if outcome.ok and outcome.hunt is not None and body.get("send_invites"):

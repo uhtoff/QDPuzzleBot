@@ -33,6 +33,7 @@ def _member(roles=()):
 def web():
     team = _guild(TEAM, "Clone", owner_id=USER)
     team.get_member.side_effect = lambda i: _member() if i == USER else None
+    team.fetch_member = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "x"))
     hub_a = _guild(HUB_A, "Hub A", roles=[
         _role(HUB_A, "@everyone", 0, default=True),
         _role(7, "Bot", 9, managed=True),
@@ -46,12 +47,18 @@ def web():
     team2 = _guild(TEAM2, "Other clone", roles=[_role(31, "Y", 1)])
     bot = MagicMock()
     bot.guilds = [team, hub_a, hub_b, team2]
-    by_id = {g.id: g for g in bot.guilds}
-    bot.get_guild.side_effect = by_id.get
+    bot.get_guild.side_effect = lambda i: next((g for g in bot.guilds if g.id == i), None)
 
     hub_roles = {HUB_A: [ADMIN_ROLE], HUB_B: []}
+    not_on_hub = set()   # (hub id, user id) pairs that aren't hub members
+    plain_on_hub = set() # (hub id, user id) pairs that are members without admin
 
     async def hub_member(hub, uid):
+        if (hub.id, uid) in not_on_hub:
+            return None
+        if uid != USER:
+            roles = [] if (hub.id, uid) in plain_on_hub else [ADMIN_ROLE]
+            return SimpleNamespace(id=uid, roles=[SimpleNamespace(id=r) for r in roles])
         return _member(hub_roles.get(hub.id, [ADMIN_ROLE]))
 
     def tier_ids(guild, names):
@@ -103,6 +110,8 @@ def web():
     try:
         state.client = app.test_client()
         state.hub_roles = hub_roles
+        state.not_on_hub = not_on_hub
+        state.plain_on_hub = plain_on_hub
         yield state
     finally:
         stop_patches(patches)
@@ -120,8 +129,14 @@ async def test_owner_without_mod_can_set_up(web):
     assert resp.status_code == 200
 
 
+def _not_admin_on_any_hub(web):
+    for hub in web.bot.guilds:
+        web.hub_roles[hub.id] = []
+
+
 async def test_stranger_refused(web):
     web.team.owner_id = 2
+    _not_admin_on_any_hub(web)
     for resp in (await web.client.get(URL), await web.client.post(URL, json=BODY)):
         assert resp.status_code == 403
         assert (await resp.get_json())["error"] == "not_admin"
@@ -136,10 +151,77 @@ async def test_admin_tier_non_owner_allowed(web):
 
 async def test_not_a_member_refused(web):
     web.team.get_member.side_effect = lambda i: None
-    web.team.fetch_member = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "x"))
+    _not_admin_on_any_hub(web)
     resp = await web.client.get(URL)
     assert resp.status_code == 403
     assert (await resp.get_json())["error"] == "not_a_member"
+
+
+OWNER = 2
+
+
+def _hub_admin_outside_the_server(web):
+    """USER is Admin on Hub A but not in the team server, whose owner is OWNER."""
+    web.team.owner_id = OWNER
+    owner = SimpleNamespace(id=OWNER, roles=[])
+    web.team.get_member.side_effect = lambda i: owner if i == OWNER else None
+    return owner
+
+
+async def test_hub_admin_outside_the_server_can_set_up(web):
+    owner = _hub_admin_outside_the_server(web)
+    body = await (await web.client.get(URL)).get_json()
+    assert [h["id"] for h in body["hubs"]] == [str(HUB_A)]
+    resp = await web.client.post(URL, json=BODY)
+    assert resp.status_code == 200
+    args, kwargs = web.perform.await_args
+    assert args[3] is owner                  # the owner acts on the team server
+    assert kwargs["requester"].id == USER    # the hub checks run on the dashboard user
+
+
+async def test_hub_admin_outside_refused_when_owner_not_on_the_hub(web):
+    _hub_admin_outside_the_server(web)
+    web.not_on_hub.add((HUB_A, OWNER))
+    for resp in (await web.client.get(URL), await web.client.post(URL, json=BODY)):
+        assert resp.status_code == 403
+        assert (await resp.get_json())["error"] == "not_a_member"
+    web.perform.assert_not_awaited()
+
+
+async def test_hub_admin_outside_refused_when_owner_is_only_a_plain_hub_member(web):
+    _hub_admin_outside_the_server(web)
+    web.plain_on_hub.add((HUB_A, OWNER))
+    for resp in (await web.client.get(URL), await web.client.post(URL, json=BODY)):
+        assert resp.status_code == 403
+    web.perform.assert_not_awaited()
+
+
+async def test_hub_admin_outside_allowed_when_owner_owns_the_hub_without_mod(web):
+    _hub_admin_outside_the_server(web)
+    web.plain_on_hub.add((HUB_A, OWNER))
+    web.hub_a.owner_id = OWNER
+    assert (await web.client.post(URL, json=BODY)).status_code == 200
+    web.perform.assert_awaited_once()
+
+
+async def test_hub_admin_outside_lists_only_hubs_the_owner_is_on(web):
+    _hub_admin_outside_the_server(web)
+    hub_c = _guild(444, "Hub C", roles=[_role(41, "Z", 1)])
+    web.bot.guilds.append(hub_c)
+    web.not_on_hub.add((444, OWNER))
+    body = await (await web.client.get(URL)).get_json()
+    assert [h["id"] for h in body["hubs"]] == [str(HUB_A)]
+    resp = await web.client.post(URL, json=dict(BODY, hub_id="444"))
+    assert resp.status_code == 403
+    web.perform.assert_not_awaited()
+
+
+async def test_hub_admin_outside_refused_on_a_hub_they_dont_run(web):
+    _hub_admin_outside_the_server(web)
+    resp = await web.client.post(URL, json=dict(BODY, hub_id=str(HUB_B)))
+    assert resp.status_code == 403
+    assert (await resp.get_json())["error"] == "not_admin"
+    web.perform.assert_not_awaited()
 
 
 async def test_get_lists_only_hubs_where_viewer_is_admin(web):
@@ -196,7 +278,7 @@ async def test_post_runs_perform_setup_with_fields(web):
     assert kwargs == {"start_timestamp": 1700000000, "username": "u", "password": "p",
                       "create_solved_sheet": True, "sheet_mode": "tabs",
                       "multi_team": False, "invites_by_dashboard": False,
-                      "via_dashboard": True}
+                      "via_dashboard": True, "requester": None}
 
 
 async def test_retry_finishes_a_partial_setup(web):

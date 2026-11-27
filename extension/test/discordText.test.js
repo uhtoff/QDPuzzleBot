@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rewriteMentions, tokenise, notificationText, stripMarkers } from "../src/lib/discordText.js";
+import { rewriteMentions, tokenise, notificationText, stripMarkers, embedLines, safeLink } from "../src/lib/discordText.js";
 
 const names = { 111: "Cipher" };
 const lookup = (id) => names[id];
@@ -35,6 +35,62 @@ describe("tokenise", () => {
   });
 });
 
+describe("tokenise links", () => {
+  it("a bare link, with the sentence's punctuation left outside it", () => {
+    expect(tokenise("see https://a.example/x?y=1. ok")).toEqual([
+      { text: "see " }, { text: "https://a.example/x?y=1", href: "https://a.example/x?y=1" }, { text: ". ok" },
+    ]);
+  });
+  it("two links keep their order and text between", () => {
+    expect(tokenise("http://one.example and https://two.example")).toEqual([
+      { text: "http://one.example", href: "http://one.example" },
+      { text: " and " },
+      { text: "https://two.example", href: "https://two.example" },
+    ]);
+  });
+  it("<url> (no preview) drops the brackets", () => {
+    expect(tokenise("go <https://a.example/p> now")).toEqual([
+      { text: "go " }, { text: "https://a.example/p", href: "https://a.example/p" }, { text: " now" },
+    ]);
+  });
+  it("[text](url) shows the text and links the url", () => {
+    expect(tokenise("[the sheet](https://a.example/s) here")).toEqual([
+      { text: "the sheet", href: "https://a.example/s" }, { text: " here" },
+    ]);
+  });
+  it("a link inside code stays code", () => {
+    expect(tokenise("`https://a.example`")).toEqual([{ text: "https://a.example", code: true }]);
+  });
+  it("only http(s) is linked", () => {
+    expect(tokenise("javascript:alert(1) [x](javascript:alert(1)) ftp://a.example")).toEqual([
+      { text: "javascript:alert(1) [x](javascript:alert(1)) ftp://a.example" },
+    ]);
+  });
+  it("shortcodes aren't replaced inside a link", () => {
+    expect(tokenise("https://a.example/:smile:/x")).toEqual([
+      { text: "https://a.example/:smile:/x", href: "https://a.example/:smile:/x" },
+    ]);
+  });
+});
+
+describe("safeLink", () => {
+  it("keeps http(s) urls", () => expect(safeLink("https://a.example/x")).toBe("https://a.example/x"));
+  it("refuses anything else", () => {
+    for (const u of ["javascript:alert(1)", "data:text/html,x", "not a url", "", null]) expect(safeLink(u)).toBe(null);
+  });
+});
+
+describe("embedLines", () => {
+  it("links the title when the embed has an http(s) url", () => {
+    expect(embedLines({ title: "T", url: "https://a.example", description: "d" })).toEqual([
+      { kind: "title", text: "T", href: "https://a.example" }, { kind: "description", text: "d" },
+    ]);
+  });
+  it("leaves the title plain for any other url", () => {
+    expect(embedLines({ title: "T", url: "javascript:x" })).toEqual([{ kind: "title", text: "T" }]);
+  });
+});
+
 describe("notificationText", () => {
   it("rewrites, strips markers, prefixes author", () => {
     expect(notificationText({ author_name: "Bob", content: "**hi** <#111> `x`" }, lookup)).toBe("Bob: hi #Cipher x");
@@ -50,4 +106,9 @@ describe("notificationText", () => {
     );
   });
   it("stripMarkers", () => expect(stripMarkers("**a**`b`")).toBe("ab"));
+  it("shows links as text: <url> unwrapped, [text](url) as its text", () => {
+    expect(notificationText({ author_name: "B", content: "<https://a.example> and [sheet](https://b.example)" })).toBe(
+      "B: https://a.example and sheet",
+    );
+  });
 });

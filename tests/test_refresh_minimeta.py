@@ -18,6 +18,7 @@ def _hunt():
     h.id = 10
     h.google_sheet_id = "SHEET1"
     h.solved_sheet_id = "ARCH1"
+    h.sheet_mode = "tabs"
     return h
 
 

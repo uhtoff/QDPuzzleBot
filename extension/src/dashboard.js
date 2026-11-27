@@ -7,6 +7,8 @@ const ACTIONS = new Set(["work", "openPuzzle", "openPage", "openRound", "closeSo
 // the relay gate itself, so it can never list an action that would be dropped.
 // (1.0.0 published nothing; the dashboard treats that as its three actions.)
 document.documentElement.dataset.puzzbotActions = [...ACTIONS].join(" ");
+// So the dashboard can say when this copy is behind (copies up to 1.2.0 publish none).
+document.documentElement.dataset.puzzbotVersion = chrome.runtime.getManifest().version;
 
 window.addEventListener("message", (event) => {
   if (event.source !== window || event.origin !== location.origin) return;

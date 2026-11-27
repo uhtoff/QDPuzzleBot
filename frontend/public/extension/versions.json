@@ -1,0 +1,7 @@
+{
+  "latest": "1.2.0",
+  "versions": [
+    { "version": "1.2.0", "adds": "the unread puzzles list, the hunt's general chat on the dashboard board, and separate notifications for solves and chat messages" },
+    { "version": "1.1.0", "adds": "per-puzzle tab groups, chat on puzzle pages opened from the dashboard, and Firefox" }
+  ]
+}

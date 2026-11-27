@@ -56,6 +56,7 @@ import { huntVoiceCount, type LiveVoice } from "../lib/voice";
 import { useViewAs, applyViewAs } from "../context/ViewAsContext";
 import type { HuntDetail, Puzzle } from "../types";
 import { ChannelNamesContext } from "../components/DiscordMarkdown";
+import { ExtensionUpdateNotice } from "../components/ExtensionUpdateNotice";
 import { channelNamesFromBoard } from "../lib/discordLinks";
 import "./HuntBoard.css";
 
@@ -332,6 +333,7 @@ export default function HuntBoard() {
   return (
     <ChannelNamesContext.Provider value={channelNames}>
     <Stack gap="md">
+      <ExtensionUpdateNotice />
       <Group justify="space-between" align="flex-start">
         <div>
           <Anchor component={Link} to="/" size="sm">

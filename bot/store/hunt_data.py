@@ -19,8 +19,9 @@ class HuntData:
     guild_id: int = 0
     google_sheet_id: str = ""
     solved_sheet_id: str = ""
-    # "tabs" (default) or "files" (migration 051): one spreadsheet per puzzle.
-    sheet_mode: str = "tabs"
+    # "files" (migration 051; the default for new hunts, column default since
+    # 067): one spreadsheet per puzzle. "tabs": one spreadsheet, a tab per puzzle.
+    sheet_mode: str = "files"
     drive_folder_id: str = ""
     solved_folder_id: str = ""
     url: str = ""
@@ -36,7 +37,8 @@ class HuntData:
     voice_channel_id: int = 0
     voice_per_puzzle: bool = False
     # Puzzle-sheet header style for new puzzles (migration 060): full or compact.
-    header_style: str = "full"
+    # Compact for new hunts, as is the column default.
+    header_style: str = "compact"
     # Whether the dashboard shows the Canvas view (migration 061); organisers
     # toggle it. Off for new hunts.
     canvas_enabled: bool = False

@@ -1,4 +1,4 @@
-import { rewriteMentions, tokenise, embedLines, emojiUrl } from "./lib/discordText.js";
+import { rewriteMentions, tokenise, embedLines, emojiUrl, stripMarkers } from "./lib/discordText.js";
 import { isBlank, messageView, isBangCommand, errorText } from "./lib/format.js";
 import { canCompose, validate, draftAfterSend } from "./lib/composer.js";
 import { applyEvent, eventChannel, sameTarget, mergeHistory, targetChannel } from "./lib/panelState.js";
@@ -6,6 +6,7 @@ import { attachmentView } from "./lib/attachments.js";
 import { messagesPath, safeAvatarUrl } from "./lib/origin.js";
 import { paginate, rowBadge, rowMessage, rowText, rowTime } from "./lib/unreadList.js";
 import { apiGet, apiSend, getOrigin } from "./api.js";
+import { updateHowTo, updateNotice } from "./lib/updateStatus.js";
 
 const KIND_COMMAND = 3;
 const POLL_MS = 15000;
@@ -50,8 +51,20 @@ let currentPuzzle = null;
 let channelNames = {};
 let dashOrigin = null; // refreshed in loadMessages; used for attachment links
 
-// Mentions, shortcodes, bold, code and custom emoji as DOM nodes; never innerHTML.
-function appendInline(parent, raw) {
+// An <a> opening *href* (already http(s)-checked) in a new tab, showing *text*.
+function newTabLink(href, text) {
+  const a = document.createElement("a");
+  a.href = href;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  a.textContent = text;
+  return a;
+}
+
+// Mentions, shortcodes, bold, code, links and custom emoji as DOM nodes; never innerHTML.
+// With links: false a link is its plain text, for text inside a button (an unread
+// row): a link can't sit inside a button, and its clicks would also work the row.
+function appendInline(parent, raw, { links = true } = {}) {
   const cleaned = rewriteMentions(raw, (id) => channelNames[id] || (id === currentPuzzle?.channel_id ? currentPuzzle.name : null), { keepCustomEmoji: true });
   for (const seg of tokenise(cleaned)) {
     if (seg.emoji) {
@@ -61,6 +74,8 @@ function appendInline(parent, raw) {
       img.alt = seg.text;
       img.title = seg.text;
       parent.append(img);
+    } else if (seg.href) {
+      parent.append(links ? newTabLink(seg.href, seg.text) : seg.text);
     } else if (seg.bold || seg.code) {
       const span = document.createElement(seg.code ? "code" : "strong");
       span.textContent = seg.text;
@@ -107,7 +122,10 @@ function renderMessage(m) {
     for (const l of lines) {
       const d = document.createElement("div");
       d.className = "embed-" + l.kind;
-      appendInline(d, l.text);
+      // A linked title is the link's plain text: its own markup could hold
+      // another link, and links don't nest.
+      if (l.href) d.append(newTabLink(l.href, stripMarkers(l.text)));
+      else appendInline(d, l.text);
       box.append(d);
     }
     body.append(box);
@@ -328,12 +346,12 @@ function renderRow(ch) {
   const name = el("span", "u-name", ch.name);
   if (ch.rounds?.length) name.append(el("span", "u-round", ch.rounds.join(", ")));
   const prev = el("span", "u-prev");
-  appendInline(prev, rowText(ch));
+  appendInline(prev, rowText(ch), { links: false });
   row.append(el("span", "badge", rowBadge(ch)), name, el("span", "u-time", ago(rowTime(ch))), el("span"), prev);
   const extra = rowMessage(ch);
   if (extra) {
     const msg = el("span", "u-prev u-msg");
-    appendInline(msg, extra);
+    appendInline(msg, extra, { links: false });
     row.append(el("span"), msg);
   }
   row.addEventListener("click", (e) => (e.ctrlKey || e.metaKey ? goTo(unreadMsg.huntUid, ch.channel_id) : peekAt(ch)));
@@ -488,6 +506,41 @@ function connectPort() {
     }, 1000);
   });
 }
+
+// ---- "your copy is behind" (versions.json on the dashboard; once per release) ----
+
+const updateBox = document.getElementById("update");
+const DISMISSED_KEY = "dismissedUpdate";
+
+async function checkForUpdate() {
+  try {
+    const origin = await getOrigin();
+    const res = await fetch(origin + "/extension/versions.json", { cache: "no-store", credentials: "omit" });
+    const info = res.ok ? await res.json() : null;
+    const { [DISMISSED_KEY]: dismissed } = await chrome.storage.local.get(DISMISSED_KEY);
+    renderUpdate(updateNotice(chrome.runtime.getManifest().version, info, dismissed ?? null));
+  } catch {
+    renderUpdate(null); // no access to the dashboard yet, or offline: say nothing
+  }
+}
+
+function renderUpdate(notice) {
+  updateBox.replaceChildren();
+  updateBox.hidden = !notice;
+  if (!notice) return;
+  const text = el("span", "u-text");
+  const what = notice.adds.map((v) => v.version + ": " + v.adds).join(" · ");
+  text.append(el("b", null, "Update available: " + notice.latest), what ? " — " + what : "");
+  text.append(el("span", "u-how", updateHowTo(!!globalThis.browser?.runtime)));
+  const close = button(null, "×", () => {
+    chrome.storage.local.set({ [DISMISSED_KEY]: notice.latest }).catch(() => {});
+    renderUpdate(null);
+  }, "Dismiss until the next release");
+  updateBox.append(text, close);
+}
+
+checkForUpdate();
+setInterval(checkForUpdate, 6 * 60 * 60 * 1000);
 
 chrome.windows.getCurrent().then((w) => {
   windowId = w.id;

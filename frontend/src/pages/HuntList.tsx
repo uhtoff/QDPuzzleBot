@@ -143,6 +143,14 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
     label: g.guild_name,
   }));
 
+  // Picking a server resets the voice checkbox to that server's default, the
+  // one !hunt and setup use; the admin can still change it before creating.
+  const chooseGuild = (id: string | null) => {
+    setGuildId(id);
+    const g = (guilds ?? []).find((x) => String(x.id) === id);
+    setVoicePerPuzzle(g?.voice_per_puzzle_default ?? false);
+  };
+
   const submit = (payload: CreateHuntPayload) => {
     createMut.mutate(payload, {
       onSuccess: (data) => {
@@ -220,7 +228,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
           placeholder="Select server"
           data={guildOptions}
           value={guildId}
-          onChange={setGuildId}
+          onChange={chooseGuild}
           required
         />
         <TextInput

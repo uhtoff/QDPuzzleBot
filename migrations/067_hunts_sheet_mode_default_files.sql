@@ -1,0 +1,13 @@
+-- 067_hunts_sheet_mode_default_files.sql
+-- hunts.sheet_mode's column default becomes 'files', matching every hunt-
+-- creation path (!hunt, the dashboard, !setup_server), which have all defaulted
+-- to files since migration 051 and always write the column explicitly. Existing
+-- rows are untouched; only the fallback for a row inserted without the column
+-- changes. (066 is taken by the multiple-answers branch.)
+--
+-- POST-CHECK:
+--   SHOW COLUMNS FROM hunts LIKE 'sheet_mode';
+--     -> Default 'files'
+--   SELECT sheet_mode, COUNT(*) FROM hunts GROUP BY sheet_mode;
+--     -> the same counts as before applying
+ALTER TABLE `hunts` ALTER COLUMN `sheet_mode` SET DEFAULT 'files';

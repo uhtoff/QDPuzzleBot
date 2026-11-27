@@ -15,7 +15,7 @@ beforeAll(async () => {
   vi.stubGlobal("document", { documentElement: { dataset } });
   vi.stubGlobal("window", win);
   vi.stubGlobal("location", { origin: "https://dash.test" });
-  vi.stubGlobal("chrome", { runtime: { sendMessage } });
+  vi.stubGlobal("chrome", { runtime: { sendMessage, getManifest: () => ({ version: "9.8.7" }) } });
   await import("../src/dashboard.js");
 });
 
@@ -25,6 +25,7 @@ const post = (action) =>
 describe("dashboard content script", () => {
   it("marks the page and lists exactly the actions it relays", () => {
     expect(dataset.puzzbotExtension).toBe("1");
+    expect(dataset.puzzbotVersion).toBe("9.8.7"); // the dashboard compares it with versions.json
     const listed = dataset.puzzbotActions.split(" ");
     expect(listed.sort()).toEqual(["closeSolved", "openPage", "openPuzzle", "openRound", "work"]);
     // Every listed action is relayed...
