@@ -51,12 +51,19 @@ export interface GuildSettingsResponse {
 
 export type GuildSettingsPatch = Partial<GuildSettingsValues>;
 
+export interface GoogleAccountLink {
+  email: string;
+  linked_at: string | null;
+}
+
 export interface User {
   id: number;
   username: string | null;
   global_name: string | null;
   avatar: string | null;
   avatar_url: string | null;
+  google_linking_enabled: boolean;
+  google_account: GoogleAccountLink | null;
 }
 
 export interface HuntSummary {

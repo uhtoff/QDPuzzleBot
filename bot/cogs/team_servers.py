@@ -6,7 +6,7 @@ import logging
 
 from discord.ext import commands
 
-from bot.core import access_log, startup_check, team_invites
+from bot.core import access_log, drive_sharing, startup_check, team_invites
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,10 @@ class TeamServers(commands.Cog):
             await access_log.on_arrived(self.bot, member)
         except Exception:
             logger.exception("access-log arrival failed for member %s", getattr(member, "id", "?"))
+        try:
+            await drive_sharing.on_member_join(self.bot, member)
+        except Exception:
+            logger.exception("drive-sharing arrival failed for member %s", getattr(member, "id", "?"))
 
     @commands.Cog.listener()
     async def on_member_remove(self, member):
@@ -43,6 +47,10 @@ class TeamServers(commands.Cog):
             await access_log.on_departed(self.bot, member)
         except Exception:
             logger.exception("access-log departure failed for member %s", getattr(member, "id", "?"))
+        try:
+            await drive_sharing.on_member_remove(self.bot, member)
+        except Exception:
+            logger.exception("drive-sharing departure failed for member %s", getattr(member, "id", "?"))
 
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
@@ -53,6 +61,10 @@ class TeamServers(commands.Cog):
                 await access_log.on_roles_changed(self.bot, before, after)
             except Exception:
                 logger.exception("access-log role change failed for member %s", getattr(after, "id", "?"))
+            try:
+                await drive_sharing.on_member_roles_changed(self.bot, before, after, added, removed)
+            except Exception:
+                logger.exception("drive-sharing role change failed for member %s", getattr(after, "id", "?"))
         if added:
             try:
                 await team_invites.on_hub_roles_added(self.bot, after, added)

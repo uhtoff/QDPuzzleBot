@@ -34,6 +34,15 @@ to check you're on the team; there's no separate password.
 
 ![Login page](img/userguide/01-login.png)
 
+### Linking your Google account (optional)
+
+If your server has Google linking enabled, click your avatar in the top-right menu and choose
+**Link Google account**. Linking is completely optional — a Google account is never required to
+view or edit puzzle sheets. When linked, Puzzbot silently shares your active hunts' Google Drive
+folders or spreadsheets with your Google email (without sending Drive notification emails) so
+other solvers see your name on Google Sheets cursors instead of "Anonymous Animal". You can
+switch accounts or unlink at any time from the same menu.
+
 ### Your hunts
 
 The front page lists active hunts by server. Old hunts move to an archived list when

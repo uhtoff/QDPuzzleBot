@@ -4,7 +4,7 @@ import string
 import json
 import logging
 from mysql.connector.errors import IntegrityError
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, Iterable, List, Optional
 
 if TYPE_CHECKING:
     from . import MySQLReconnector
@@ -359,6 +359,24 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
             (hunt_id,),
         )
         return int(row["guild_snowflake"]) if row else None
+
+    def get_active_for_guild(self, guild_snowflake: int) -> List[HuntData]:
+        """Every non-archived hunt homed on *guild_snowflake*."""
+        rows = self._fetch_all(
+            "SELECT hunts.* FROM `hunts` JOIN `guilds` ON hunts.guild_id = guilds.id "
+            "WHERE guilds.guild_id = %s AND hunts.archived = 0 ORDER BY hunts.id ASC",
+            (int(guild_snowflake),),
+        )
+        return [HuntData.import_dict(r) for r in rows]
+
+    def get_all_active_with_guild(self) -> list[tuple[HuntData, int]]:
+        """[(hunt, guild_snowflake)] for every non-archived hunt across all guilds."""
+        rows = self._fetch_all(
+            "SELECT hunts.*, guilds.guild_id AS guild_snowflake FROM `hunts` "
+            "JOIN `guilds` ON hunts.guild_id = guilds.id "
+            "WHERE hunts.archived = 0 ORDER BY hunts.id ASC",
+        )
+        return [(HuntData.import_dict(r), int(r["guild_snowflake"])) for r in rows]
 
     def mark_invites_sent(self, hunt_id):
         """Stamp hunts.invites_sent_time with now (UTC) unless already set: the first
@@ -1930,3 +1948,175 @@ class MySQLGuildSettingsDb():
             cursor.close()
         settings.setup_complete_time = now
         self.cached_settings[settings.guild_id] = settings
+
+
+class MySQLGoogleLinkDb(_MySQLBaseDb):
+    """Per-user optional Google account link (user_google_links, migration 066).
+
+    Maps a Discord user id to their verified Google OIDC subject and normalized
+    email address. Deliberately stores no OAuth tokens.
+    """
+    TABLE_NAME = 'user_google_links'
+
+    def get(self, discord_user_id: int) -> Optional[dict[str, Any]]:
+        row = self._fetch_one(
+            "SELECT discord_user_id, google_sub, google_email, linked_at "
+            "FROM user_google_links WHERE discord_user_id = %s",
+            (int(discord_user_id),),
+        )
+        if row is None:
+            return None
+        row["discord_user_id"] = int(row["discord_user_id"])
+        return row
+
+    def get_many(self, discord_user_ids: Iterable[int]) -> dict[int, str]:
+        """{discord_user_id: google_email} for linked users in *discord_user_ids*."""
+        ids = list({int(uid) for uid in discord_user_ids})
+        if not ids:
+            return {}
+        placeholders = ",".join(["%s"] * len(ids))
+        rows = self._fetch_all(
+            f"SELECT discord_user_id, google_email FROM user_google_links "
+            f"WHERE discord_user_id IN ({placeholders})",
+            tuple(ids),
+        )
+        return {int(r["discord_user_id"]): str(r["google_email"]) for r in rows}
+
+    def upsert(self, discord_user_id: int, google_sub: str, google_email: str) -> None:
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        self._exec(
+            "INSERT INTO user_google_links "
+            "(discord_user_id, google_sub, google_email, linked_at) "
+            "VALUES (%s, %s, %s, %s) "
+            "ON DUPLICATE KEY UPDATE "
+            "google_sub = VALUES(google_sub), "
+            "google_email = VALUES(google_email), "
+            "linked_at = VALUES(linked_at)",
+            (int(discord_user_id), google_sub, google_email.strip().lower(), now),
+        )
+
+    def unlink(self, discord_user_id: int) -> Optional[dict[str, Any]]:
+        """Remove *discord_user_id*'s Google link, returning the previous row (or None)."""
+        prev = self.get(discord_user_id)
+        if prev is not None:
+            self._exec(
+                "DELETE FROM user_google_links WHERE discord_user_id = %s",
+                (int(discord_user_id),),
+            )
+        return prev
+
+
+class MySQLDriveShareDb(_MySQLBaseDb):
+    """Ledger of Drive user permissions granted by Puzzbot (drive_user_shares,
+    migration 066). Tracks permission_id so repeat loads are zero-API-call cache
+    hits and unlink/role-removal can best-effort revoke active-hunt permissions.
+    """
+    TABLE_NAME = 'drive_user_shares'
+
+    def get(self, discord_user_id: int, drive_file_id: str) -> Optional[dict[str, Any]]:
+        row = self._fetch_one(
+            "SELECT id, hunt_id, discord_user_id, drive_file_id, google_email, "
+            "permission_id, shared_at FROM drive_user_shares "
+            "WHERE discord_user_id = %s AND drive_file_id = %s",
+            (int(discord_user_id), drive_file_id),
+        )
+        if row is not None:
+            row["discord_user_id"] = int(row["discord_user_id"])
+        return row
+
+    def upsert(
+        self,
+        hunt_id: int,
+        discord_user_id: int,
+        drive_file_id: str,
+        google_email: str,
+        permission_id: str,
+    ) -> None:
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        self._exec(
+            "INSERT INTO drive_user_shares "
+            "(hunt_id, discord_user_id, drive_file_id, google_email, permission_id, shared_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s) "
+            "ON DUPLICATE KEY UPDATE "
+            "hunt_id = VALUES(hunt_id), "
+            "google_email = VALUES(google_email), "
+            "permission_id = VALUES(permission_id), "
+            "shared_at = VALUES(shared_at)",
+            (int(hunt_id), int(discord_user_id), drive_file_id,
+             google_email.strip().lower(), permission_id, now),
+        )
+
+    def delete_for_user_file(
+        self,
+        discord_user_id: int,
+        drive_file_id: str,
+        *,
+        email: Optional[str] = None,
+    ) -> None:
+        if email is not None:
+            self._exec(
+                "DELETE FROM drive_user_shares "
+                "WHERE discord_user_id = %s AND drive_file_id = %s AND google_email = %s",
+                (int(discord_user_id), drive_file_id, email.strip().lower()),
+            )
+        else:
+            self._exec(
+                "DELETE FROM drive_user_shares "
+                "WHERE discord_user_id = %s AND drive_file_id = %s",
+                (int(discord_user_id), drive_file_id),
+            )
+
+    def delete_for_file(self, drive_file_id: str) -> None:
+        """Drop ledger rows for a deleted Drive file/folder (e.g. sheet-mode switch)."""
+        if not drive_file_id:
+            return
+        self._exec(
+            "DELETE FROM drive_user_shares WHERE drive_file_id = %s",
+            (drive_file_id,),
+        )
+
+    def list_active_for_user(
+        self,
+        discord_user_id: int,
+        *,
+        hunt_id: Optional[int] = None,
+        email: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Share rows for *discord_user_id* on non-archived hunts (optionally
+        filtered to one *hunt_id* and/or one *email*)."""
+        clauses = ["s.discord_user_id = %s", "h.archived = 0"]
+        params: list[Any] = [int(discord_user_id)]
+        if hunt_id is not None:
+            clauses.append("s.hunt_id = %s")
+            params.append(int(hunt_id))
+        if email is not None:
+            clauses.append("s.google_email = %s")
+            params.append(email.strip().lower())
+        rows = self._fetch_all(
+            "SELECT s.id, s.hunt_id, s.discord_user_id, s.drive_file_id, "
+            "s.google_email, s.permission_id, s.shared_at "
+            "FROM drive_user_shares s JOIN hunts h ON h.id = s.hunt_id "
+            f"WHERE {' AND '.join(clauses)} ORDER BY s.id ASC",
+            tuple(params),
+        )
+        for r in rows:
+            r["discord_user_id"] = int(r["discord_user_id"])
+        return rows
+
+    def has_other_user_share(
+        self,
+        drive_file_id: str,
+        google_email: str,
+        *,
+        exclude_user_id: int,
+    ) -> bool:
+        """True if another Discord user still holds a recorded share on the same
+        (drive_file_id, google_email) pair (e.g., an alt Discord account linked
+        to the same Google account)."""
+        row = self._fetch_one(
+            "SELECT 1 AS hit FROM drive_user_shares "
+            "WHERE drive_file_id = %s AND google_email = %s AND discord_user_id <> %s "
+            "LIMIT 1",
+            (drive_file_id, google_email.strip().lower(), int(exclude_user_id)),
+        )
+        return row is not None

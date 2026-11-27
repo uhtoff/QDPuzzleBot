@@ -32,7 +32,7 @@ from .media_data import MediaData
 from .canvas_data import CanvasRegionData, HuntCanvasData
 from .markup_data import MediaMarkupData
 from .puzzle_image_data import PuzzleImageData
-from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb, MySQLTagGroupCategoryDb, MySQLHuntCategoryDb, MySQLMessageDb, MySQLMediaDb, MySQLHuntCanvasDb, MySQLCanvasRegionDb, MySQLMediaMarkupDb, MySQLPuzzleImageDb, MySQLHuntInviteDb, MySQLHuntAccessLogDb, MySQLMultiTeamDb, MySQLPuzzleActivityDb
+from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb, MySQLTagGroupCategoryDb, MySQLHuntCategoryDb, MySQLMessageDb, MySQLMediaDb, MySQLHuntCanvasDb, MySQLCanvasRegionDb, MySQLMediaMarkupDb, MySQLPuzzleImageDb, MySQLHuntInviteDb, MySQLHuntAccessLogDb, MySQLMultiTeamDb, MySQLPuzzleActivityDb, MySQLGoogleLinkDb, MySQLDriveShareDb
 
 from bot.utils import config
 
@@ -192,6 +192,8 @@ if config.storage == 'mysql':
     CanvasRegionJsonDb = MySQLCanvasRegionDb(mydb=mydb)
     MediaMarkupJsonDb = MySQLMediaMarkupDb(mydb=mydb)
     PuzzleImageJsonDb = MySQLPuzzleImageDb(mydb=mydb)
+    GoogleLinkDb = MySQLGoogleLinkDb(mydb=mydb)
+    DriveShareDb = MySQLDriveShareDb(mydb=mydb)
     # The bridge cog's puzzle-channel gate queries run on a background thread via
     # asyncio.to_thread (bot/cogs/bridge.py _load_puzzle_channels/_lookup_puzzle_channel).
     # A mysql.connector connection is not thread-safe to share, so give this its own

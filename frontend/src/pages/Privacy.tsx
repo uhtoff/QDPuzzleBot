@@ -24,7 +24,7 @@ export function PrivacyPolicy({ site }: { site: SiteInfo }) {
       <Stack gap="md">
         <Title order={1}>Privacy policy</Title>
         <Text c="dimmed" size="sm">
-          Last updated: 16 November 2026
+          Last updated: 25 November 2026
         </Text>
 
         <Title order={3}>Who runs this</Title>
@@ -44,6 +44,19 @@ export function PrivacyPolicy({ site }: { site: SiteInfo }) {
           You sign in with Discord OAuth. We receive your Discord user id, username, display
           name and avatar, and use your server memberships and roles to decide which hunts you
           can see. A session cookie keeps you signed in.
+        </Text>
+
+        <Title order={3}>Google account linking (optional)</Title>
+        <Text>
+          You may optionally link a Google account from your profile menu so your name appears on
+          Google Sheets cursors instead of &ldquo;Anonymous Animal&rdquo;; a Google account is
+          never required to participate. Linking uses Google OAuth with the <code>openid</code>{" "}
+          and <code>email</code> scopes only — we do not request access to your Google Drive or
+          store Google access tokens. We store your verified Google account identifier and email
+          alongside your Discord user id, and record which active hunt folders or spreadsheets
+          have been shared with that email (including the Drive permission id) so we avoid
+          duplicate shares. Unlinking deletes your stored Google account link and best-effort
+          revokes your individual Drive permissions on active hunts.
         </Text>
 
         <Title order={3}>Team Discord servers</Title>

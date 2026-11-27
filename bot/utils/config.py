@@ -48,6 +48,12 @@ class Config:
         self.web_oauth_client_id = web.get("oauth_client_id", "")
         self.web_oauth_client_secret = web.get("oauth_client_secret", "")
         self.web_oauth_redirect_uri = web.get("oauth_redirect_uri", "")
+        # Optional Google OAuth 2.0 Web Client for linking a user's Google
+        # account (openid + email only) so Puzzbot can share hunt sheets with
+        # them for named cursors. Feature stays hidden/inactive when blank.
+        self.web_google_oauth_client_id = web.get("google_oauth_client_id", "")
+        self.web_google_oauth_client_secret = web.get("google_oauth_client_secret", "")
+        self.web_google_oauth_redirect_uri = web.get("google_oauth_redirect_uri", "")
         # Where the SPA is served from; used to build post-login redirects.
         self.web_frontend_url = web.get("frontend_url", "")
         # Path to the built SPA (frontend/dist). Empty -> default alongside repo.
@@ -82,3 +88,13 @@ class Config:
         self.development = self.config.get("development", default_config.get("development"))
         self.max_channels_per_category = int(self.config.get(
             "max_channels_per_category", default_config.get("max_channels_per_category")))
+
+    @property
+    def web_google_oauth_enabled(self) -> bool:
+        """True when all three Google OAuth web settings are configured."""
+        return bool(
+            self.web_google_oauth_client_id
+            and self.web_google_oauth_client_secret
+            and self.web_google_oauth_redirect_uri
+        )
+

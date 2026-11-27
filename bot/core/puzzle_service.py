@@ -21,7 +21,7 @@ from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
 from bot.core.answers import record_add, record_change, record_partial, record_solve, record_unsolve
-from bot.core import category_layout, hunt_archive, media_gc, mod_invite, voice
+from bot.core import category_layout, drive_sharing, hunt_archive, media_gc, mod_invite, voice
 from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS, DEFAULT_HEADER_STYLE, HEADER_COMPACT, HEADER_FULL, HEADER_STYLES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
@@ -3276,6 +3276,7 @@ class PuzzleService:
             raise RuntimeError("gsheet_unavailable")
         hunt.solved_sheet_id = await gsheet_cog.create_solved_sheet(hunt.name)
         HuntJsonDb.commit(hunt)
+        drive_sharing.schedule_preshare_hunt(self.bot, hunt)
         return hunt.solved_sheet_id
 
     @pushes_board()
@@ -4257,6 +4258,7 @@ class PuzzleService:
             raise RuntimeError("role_not_applied")
         hunt.role_id = team_role.id
         HuntJsonDb.commit(hunt)
+        drive_sharing.schedule_preshare_hunt(self.bot, hunt, guild=guild)
 
         overwrites = self._gating_overwrites(guild, team_role)
         return await self._apply_gating_overwrites(guild, hunt, overwrites)
@@ -4354,6 +4356,8 @@ class PuzzleService:
                     await gsheet_cog.delete_file(file_id)
                 except Exception:
                     logger.exception("set_sheet_mode: could not delete %s", file_id)
+                drive_sharing.forget_file(file_id)
+        drive_sharing.schedule_preshare_hunt(self.bot, hunt)
 
     @staticmethod
     async def _create_hunt_folder(gsheet_cog, name, parent_id):
@@ -4538,6 +4542,7 @@ class PuzzleService:
             await voice.ensure_hunt_voice(guild, new_hunt)
         except Exception:
             logger.exception("create_hunt: hunt voice channel failed for %s", name)
+        drive_sharing.schedule_preshare_hunt(self.bot, new_hunt, guild=guild)
         if self.notifier is not None:
             # Not @pushes_board: there is no pre-existing hunt to bind the
             # decorator's `hunt` parameter to (this call creates it) — push

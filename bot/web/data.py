@@ -374,7 +374,7 @@ async def find_puzzle_by_sheet(spreadsheet_id, gid):
             return None
     hunt = await fetch_one(
         "SELECT id, uid, name, guild_id, role_id, roster_role_id, archived, "
-        "google_sheet_id, solved_sheet_id, sheet_mode FROM hunts WHERE id = %s",
+        "google_sheet_id, solved_sheet_id, sheet_mode, drive_folder_id FROM hunts WHERE id = %s",
         (match["hunt_id"],),
     )
     if hunt is None:
@@ -1008,3 +1008,39 @@ async def get_attachment_with_channel(attachment_id):
         "WHERE a.id = %s LIMIT 1",
         (attachment_id,),
     )
+
+
+# --- Google account links & Drive shares --------------------------------------
+
+async def get_user_google_link(discord_user_id: int):
+    """One user's linked Google account ({google_email, linked_at}), or None."""
+    row = await fetch_one(
+        "SELECT discord_user_id, google_sub, google_email, linked_at "
+        "FROM user_google_links WHERE discord_user_id = %s LIMIT 1",
+        (int(discord_user_id),),
+    )
+    if row is None:
+        return None
+    linked_at = row.get("linked_at")
+    return {
+        "discord_user_id": int(row["discord_user_id"]),
+        "google_sub": row["google_sub"],
+        "google_email": row["google_email"],
+        "linked_at": _iso(linked_at) if isinstance(linked_at, datetime.datetime) else linked_at,
+    }
+
+
+async def get_user_shared_files(discord_user_id: int, file_ids) -> dict[str, str]:
+    """{drive_file_id: google_email} for the subset of *file_ids* already
+    recorded in drive_user_shares for *discord_user_id*."""
+    ids = [str(f) for f in file_ids if f]
+    if not ids:
+        return {}
+    placeholders = ",".join(["%s"] * len(ids))
+    rows = await fetch_all(
+        "SELECT drive_file_id, google_email FROM drive_user_shares "
+        f"WHERE discord_user_id = %s AND drive_file_id IN ({placeholders})",
+        (int(discord_user_id), *ids),
+    )
+    return {str(r["drive_file_id"]): str(r["google_email"]) for r in rows}
+

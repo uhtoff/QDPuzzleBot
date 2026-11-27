@@ -20,7 +20,7 @@ from .auth import (
     resolve_membership,
     user_can_manage,
 )
-from bot.core import channel_relay, role_gate, role_panel
+from bot.core import channel_relay, drive_sharing, role_gate, role_panel
 from bot.store import MultiTeamDb
 from bot.core.sheet_location import drive_folder_link, puzzle_location, spreadsheet_link
 from bot.utils import config
@@ -40,6 +40,32 @@ _WS_PING_SECONDS = 20
 
 def _sheet_base(sheet_id):
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit#gid=" if sheet_id else None
+
+
+async def _maybe_schedule_hunt_share(user_id: int, hunt: dict) -> None:
+    """Lazy first-load fallback: if *user_id* has linked a Google account and
+    any Drive target of active *hunt* is not yet recorded as shared with their
+    current email, schedule a non-blocking Drive share. Fast-paths to zero
+    Drive calls once shared; never fails the caller."""
+    if not config.web_google_oauth_enabled:
+        return
+    targets = drive_sharing.hunt_share_targets(hunt)
+    if not targets:
+        return
+    try:
+        link = await data.get_user_google_link(user_id)
+        if link is None:
+            return
+        shared = await data.get_user_shared_files(user_id, targets)
+        email = str(link["google_email"])
+        if all(shared.get(fid) == email for fid in targets):
+            return
+        drive_sharing.schedule_ensure_user_hunt_shared(bot_app().bot, hunt, user_id)
+    except Exception:
+        logger.warning(
+            "Lazy Drive share check failed for hunt %s user %s",
+            hunt.get("id"), user_id, exc_info=True,
+        )
 
 
 @api_bp.route("/guilds")
@@ -121,6 +147,8 @@ async def hunt_detail(uid):
         assert isinstance(guild_or_status, int)  # the (None, status) branch
         return jsonify({"error": "not_found_or_forbidden"}), guild_or_status
     assert isinstance(guild_or_status, dict)  # the (hunt, guild_info) branch
+
+    await _maybe_schedule_hunt_share(int(user["id"]), hunt)
 
     guild_snowflake = guild_or_status.get("guild_snowflake")
     puzzles = await data.get_hunt_puzzles(hunt, guild_snowflake)
@@ -214,6 +242,7 @@ async def puzzle_by_sheet():
     guilds_map = await data.get_guilds_map()
     if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
         return not_found
+    await _maybe_schedule_hunt_share(int(user["id"]), hunt)
     guild_snowflake = guilds_map.get(hunt["guild_id"], {}).get("guild_snowflake")
     channel_id = puzzle["channel_id"]
     return jsonify({

@@ -198,3 +198,40 @@ def test_move_file_with_from_folder_makes_no_lookup():
     cog = _cog()
     drive, _ = _run(cog.move_file("FILE", "TO", "FROM"))
     drive.files().get.assert_not_called()
+
+
+def test_share_user_writer_sends_silent_writer_permission():
+    cog = _cog()
+    drive, perm_id = _run(
+        cog.share_user_writer("FOLDER1", "alice@example.com"),
+        responses=[{"id": "PERM42"}],
+    )
+    assert perm_id == "PERM42"
+    kw = drive.permissions().create.call_args.kwargs
+    assert kw == {
+        "fileId": "FOLDER1",
+        "body": {"type": "user", "role": "writer", "emailAddress": "alice@example.com"},
+        "sendNotificationEmail": False,
+        "fields": "id",
+    }
+
+
+def test_unshare_permission_deletes_and_swallows_404():
+    cog = _cog()
+    drive, _ = _run(cog.unshare_permission("FILE1", "PERM9"))
+    assert drive.permissions().delete.call_args.kwargs == {
+        "fileId": "FILE1",
+        "permissionId": "PERM9",
+    }
+    drive404, _ = _run(cog.unshare_permission("FILE1", "PERM9"), raises=_http_error(404))
+    assert drive404.permissions().delete.call_args.kwargs == {
+        "fileId": "FILE1",
+        "permissionId": "PERM9",
+    }
+
+
+def test_unshare_permission_propagates_non_404_errors():
+    cog = _cog()
+    with pytest.raises(HttpError):
+        _run(cog.unshare_permission("FILE1", "PERM9"), raises=_http_error(403))
+

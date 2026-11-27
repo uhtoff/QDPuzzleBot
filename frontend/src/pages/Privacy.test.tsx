@@ -16,7 +16,10 @@ describe("PrivacyPolicy", () => {
     const html = render({ name: "QD Puzzbot", contact: "ops@example.test", test_instance: false });
     expect(html).toContain("QD Puzzbot");
     expect(html).toContain("ops@example.test");
-    expect(html).toContain("Last updated: 16 November 2026");
+    expect(html).toContain("Last updated: 25 November 2026");
+    expect(html).toContain("Google account linking (optional)");
+    expect(html).toContain("a Google account is never required to participate");
+    expect(html).toContain("do not request access to your Google Drive or store Google access tokens");
     expect(html).not.toContain("RETENTION PERIOD");
     expect(html).toContain("deleted once they are 30 days old");
     expect(html).toContain("web-server logs follow the same 30-day rule");

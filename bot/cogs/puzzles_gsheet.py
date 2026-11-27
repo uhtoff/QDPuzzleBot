@@ -958,6 +958,38 @@ class GoogleSheets(commands.Cog):
             on_retry=self._notify_retry,
         )
 
+    async def share_user_writer(self, file_id: str, email: str) -> str:
+        """Grant *email* writer permission on *file_id* silently (no Drive email).
+        Idempotent in Drive: re-creating for an existing user returns their
+        permission id."""
+        perm = await execute_with_retry(
+            get_drive().permissions().create(
+                fileId=file_id,
+                body={"type": "user", "role": "writer", "emailAddress": email},
+                sendNotificationEmail=False,
+                fields="id",
+            ),
+            on_retry=self._notify_retry,
+        )
+        return perm["id"]
+
+    async def unshare_permission(self, file_id: str, permission_id: str) -> None:
+        """Revoke one Drive permission; tolerates an already-gone file or
+        permission (404). Any other error propagates."""
+        try:
+            await execute_with_retry(
+                get_drive().permissions().delete(
+                    fileId=file_id,
+                    permissionId=permission_id,
+                ),
+                on_retry=self._notify_retry,
+            )
+        except HttpError as e:
+            if getattr(e.resp, "status", None) == 404:
+                logger.info("unshare_permission: %s on %s already gone", permission_id, file_id)
+                return
+            raise
+
     async def copy_template(self, name: str, folder_id: str) -> str:
         """Copy the master spreadsheet into `folder_id`, shared anyone-with-link writer."""
         new_file = await execute_with_retry(

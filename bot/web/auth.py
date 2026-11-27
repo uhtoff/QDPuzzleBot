@@ -112,9 +112,25 @@ async def me():
     user = session.get("user")
     if not user:
         return jsonify({"authenticated": False}), 401
+    google_enabled = bool(config.web_google_oauth_enabled)
+    google_account = None
+    if google_enabled:
+        from . import data as web_data
+        try:
+            link = await web_data.get_user_google_link(int(user["id"]))
+        except Exception:
+            logger.warning("Could not read Google account link for user %s", user["id"], exc_info=True)
+            link = None
+        if link is not None:
+            google_account = {
+                "email": link["google_email"],
+                "linked_at": link["linked_at"],
+            }
     payload = {
         **user,
         "avatar_url": discord_avatar_url(user["id"], user.get("avatar")),
+        "google_linking_enabled": google_enabled,
+        "google_account": google_account,
     }
     return jsonify({"authenticated": True, "user": payload})
 
