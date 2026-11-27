@@ -29,3 +29,25 @@ export function boardReuseTarget({ newTab, beforeUid, tabs, origin }) {
   );
   return candidates[0].id;
 }
+
+// Hand a board link to the open tab `targetId`: the dashboard content script takes the
+// query without reloading when the page supports it (answers `true`); otherwise — a
+// `false`, an error (no content script), or no answer in time — the tab navigates to the
+// link. Only then is the target focused and the new tab closed, so the link is never lost.
+export async function handOverBoardLink({ targetId, newTabId, url, api, timeoutMs = 1500 }) {
+  const msg = { type: "openBoardLink", search: new URL(url).search };
+  let answer;
+  try {
+    answer = await Promise.race([api.sendMessage(targetId, msg), new Promise((r) => setTimeout(() => r(undefined), timeoutMs))]);
+  } catch {
+    answer = undefined;
+  }
+  let result = "handed";
+  if (answer !== true) {
+    await api.update(targetId, { url });
+    result = "reloaded";
+  }
+  await Promise.resolve().then(() => api.focus(targetId)).catch(() => {});
+  await Promise.resolve().then(() => api.remove(newTabId)).catch(() => {});
+  return result;
+}

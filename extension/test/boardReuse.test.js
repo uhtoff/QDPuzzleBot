@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { boardReuseTarget } from "../src/lib/boardReuse.js";
+import { boardReuseTarget, handOverBoardLink } from "../src/lib/boardReuse.js";
 
 const origin = "https://dash.test";
 const b = (uid, q = "") => `https://dash.test/hunts/${uid}${q}`;
@@ -85,5 +85,65 @@ describe("boardReuseTarget", () => {
       { id: 3, url: b("h1", "?image=1"), windowId: 5 },
     ];
     expect(decide(elsewhere[3], elsewhere)).toBe(1);
+  });
+});
+
+describe("handOverBoardLink", () => {
+  const fakeApi = (sendMessage) => {
+    const calls = [];
+    const api = {
+      sendMessage: (...a) => (calls.push(["sendMessage", ...a]), sendMessage()),
+      update: async (...a) => void calls.push(["update", ...a]),
+      focus: async (...a) => void calls.push(["focus", ...a]),
+      remove: async (...a) => void calls.push(["remove", ...a]),
+    };
+    return { api, calls };
+  };
+  const url = b("h1", "?puzzle=3&image=50");
+
+  it("hands the search over and closes the new tab after", async () => {
+    const { api, calls } = fakeApi(async () => true);
+    expect(await handOverBoardLink({ targetId: 1, newTabId: 2, url, api })).toBe("handed");
+    expect(calls).toEqual([
+      ["sendMessage", 1, { type: "openBoardLink", search: "?puzzle=3&image=50" }],
+      ["focus", 1],
+      ["remove", 2],
+    ]);
+  });
+
+  const expectReloaded = (calls) =>
+    expect(calls.slice(1)).toEqual([["update", 1, { url }], ["focus", 1], ["remove", 2]]);
+
+  it("falls back to navigating when the page declines", async () => {
+    const { api, calls } = fakeApi(async () => false);
+    expect(await handOverBoardLink({ targetId: 1, newTabId: 2, url, api })).toBe("reloaded");
+    expectReloaded(calls);
+  });
+
+  it("falls back when sendMessage throws", async () => {
+    const { api, calls } = fakeApi(async () => {
+      throw new Error("Receiving end does not exist");
+    });
+    expect(await handOverBoardLink({ targetId: 1, newTabId: 2, url, api })).toBe("reloaded");
+    expectReloaded(calls);
+  });
+
+  it("falls back when the page never answers", async () => {
+    const { api, calls } = fakeApi(() => new Promise(() => {}));
+    expect(await handOverBoardLink({ targetId: 1, newTabId: 2, url, api, timeoutMs: 10 })).toBe("reloaded");
+    expectReloaded(calls);
+  });
+
+  it("a plain board link hands over an empty search", async () => {
+    const { api, calls } = fakeApi(async () => true);
+    await handOverBoardLink({ targetId: 1, newTabId: 2, url: b("h1"), api });
+    expect(calls[0]).toEqual(["sendMessage", 1, { type: "openBoardLink", search: "" }]);
+  });
+
+  it("swallows focus and remove errors", async () => {
+    const { api } = fakeApi(async () => true);
+    api.focus = async () => { throw new Error("gone"); };
+    api.remove = async () => { throw new Error("gone"); };
+    expect(await handOverBoardLink({ targetId: 1, newTabId: 2, url, api })).toBe("handed");
   });
 });
