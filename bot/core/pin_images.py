@@ -39,13 +39,13 @@ def images_field_value(images: list[PinImage], base: str, hunt_uid: str,
         note = _clean_note(img.note) if img.note else ""
         label = f"{kind}: {note}" if note else f"{kind} {counts[img.is_evidence]}"
         url = image_link(base, hunt_uid, puzzle_id, img.media_id)
-        lines.append(f"[{label}]({url})")
+        lines.append(f"• [{label}]({url})")
     if len("\n".join(lines)) <= budget:
         return "\n".join(lines)
     puzzle_url = image_link(base, hunt_uid, puzzle_id)
 
     def more(n: int) -> str:
-        return f"[+{n} more on the dashboard]({puzzle_url})"
+        return f"• [+{n} more on the dashboard]({puzzle_url})"
 
     shown = 0
     used = 0
@@ -56,7 +56,8 @@ def images_field_value(images: list[PinImage], base: str, hunt_uid: str,
         used = added
         shown = i + 1
     if shown == 0:
-        return None
+        only = more(len(lines))
+        return only if len(only) <= budget else None
     return "\n".join(lines[:shown] + [more(len(lines) - shown)])
 
 

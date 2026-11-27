@@ -23,6 +23,7 @@ def test_order_and_numbering():
     ]
     lines = _val(imgs).split("\n")
     assert len(lines) == 4
+    assert all(ln.startswith("• [") for ln in lines)
     assert "Image 1" in lines[0] and "image=11" in lines[0]
     assert "Image 2" in lines[1] and "image=12" in lines[1]
     assert "Evidence: a note" in lines[2] and "image=21" in lines[2]
@@ -52,15 +53,25 @@ def test_overflow_adds_more_line():
     lines = value.split("\n")
     shown = len(lines) - 1
     assert 0 < shown < 60
-    assert lines[-1].startswith(f"[+{60 - shown} more on the dashboard](")
+    assert lines[-1].startswith(f"• [+{60 - shown} more on the dashboard](")
     assert lines[-1].endswith(f"/hunts/{HUNT}?puzzle=7)")
 
 
 def test_none_cases():
     imgs = [PinImage(1, None, False)]
     assert _val(imgs, budget=30) is None
+    assert _val(imgs, budget=5) is None
     assert _val(imgs, base="") is None
     assert _val([]) is None
+
+
+def test_only_more_line_when_no_image_line_fits():
+    imgs = [PinImage(i, None, False) for i in range(1, 4)]
+    line_len = len(_val(imgs[:1]))
+    more_len = len(f"• [+3 more on the dashboard]({BASE}/hunts/{HUNT}?puzzle=7)")
+    assert more_len < line_len + 1 + more_len  # sanity
+    value = _val(imgs, budget=more_len + 2)
+    assert value == f"• [+3 more on the dashboard]({BASE}/hunts/{HUNT}?puzzle=7)"
 
 
 def _cog():
