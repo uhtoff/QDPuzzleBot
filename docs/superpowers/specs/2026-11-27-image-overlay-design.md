@@ -208,6 +208,11 @@ Thumbnails, top of the list = top of the stack. Drag to reorder (dnd-kit is alre
 dependency), eye icon to hide, click to select. The background sits at the bottom, marked
 and not draggable.
 
+**Solo (user, 2026-11-27):** Alt+click an eye shows only that layer (or only the
+background) and hides everything else. Alt+clicking the same eye again restores exactly the
+visibility from before the solo. Any other show/hide while soloed simply keeps the current
+state and drops the remembered one. Expected to be used rarely; keep it small.
+
 ### Crop
 
 The Crop button puts the selected layer into crop mode: it is shown un-rotated at its

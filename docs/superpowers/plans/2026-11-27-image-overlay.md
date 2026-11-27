@@ -224,6 +224,7 @@ export type OverlayState = {
   scene: Scene; selectedId: string | null; cropMode: boolean;
   past: Scene[]; future: Scene[]; gestureStart: Scene | null;
   copiedSize: { sx: number; sy: number } | null; dirty: boolean;
+  solo: { id: string; before: Record<string, boolean> } | null;   // visibility before the solo, by id
 };
 export const initialOverlayState: OverlayState;
 export type OverlayAction =
@@ -233,6 +234,7 @@ export type OverlayAction =
   | { type: "updateLayer"; id: string; patch: Partial<Layer> }
   | { type: "updateBackground"; patch: Partial<Pick<Background, "opacity" | "visible">> }
   | { type: "remove"; id: string } | { type: "toggleVisible"; id: string }
+  | { type: "solo"; id: string }     // id may be the background's id
   | { type: "reorder"; from: number; to: number }
   | { type: "promote"; id: string } | { type: "setCrop"; id: string; crop: Crop }
   | { type: "setCropMode"; on: boolean }
@@ -241,8 +243,15 @@ export type OverlayAction =
 export function overlayReducer(s: OverlayState, a: OverlayAction): OverlayState;
 ```
 Rules: first `addImage` becomes the background (`w,h` given by the caller after `fitCanvasLimits`); later ones become layers placed with `initialPlacement` and selected. Every scene-changing action outside a gesture pushes one undo entry; inside `beginGesture…endGesture` the whole gesture is one entry (pushed at `endGesture` only if the scene changed). New change clears `future`. History cap 100. `dirty` true after any scene change, false after `markSaved`. `remove` of the selected layer clears selection. `select`, `setCropMode`, `copySize` do not touch history.
+`solo`: when `solo` is null or names another id, record every layer's and the background's
+`visible` in `before`, then make only `id` visible. When `solo.id === id`, restore `before`
+and clear `solo`. `toggleVisible` (and `remove`) clear `solo` without restoring. A solo or
+un-solo is one undo entry.
 
-- [ ] **Step 1: Failing tests:** first image → background, second → selected layer; a gesture of 20 `updateLayer`s undoes in one step and redoes back; `copySize` on A then `pasteSize` on B sets B's sx/sy to A's; `remove` selected → `selectedId` null; history capped at 100; `dirty` set by `updateLayer`, cleared by `markSaved`, unaffected by `select`.
+- [ ] **Step 1: Failing tests:** first image → background, second → selected layer; a gesture of 20 `updateLayer`s undoes in one step and redoes back; `copySize` on A then `pasteSize` on B sets B's sx/sy to A's; `remove` selected → `selectedId` null; history capped at 100; `dirty` set by `updateLayer`, cleared by `markSaved`, unaffected by `select`;
+with layers A (visible), B (hidden), C (visible) and a visible background, `solo` B → only B
+visible; `solo` B again → A visible, B hidden, C visible, background visible; `solo` A then
+`toggleVisible` C → `solo` null and the visibility is left as it now is.
 - [ ] **Steps 2–4:** run FAIL, implement, run PASS.
 - [ ] **Step 5: Commit** — `feat(overlay): editor state with undo`
 
@@ -287,7 +296,7 @@ Behaviour (spec sections "Selecting and handles", "Keyboard", "View", "Paste han
 **Files:** Create `OverlayLayerList.tsx`, `OverlayLayerPanel.tsx` in `frontend/src/components/overlay/`.
 
 **Interfaces — Consumes:** `OverlayState`, `OverlayAction`, the images map.
-- List: top of list = top of stack; dnd-kit sortable (pattern as in `PuzzleImages.tsx`) dispatching `reorder`; eye toggles `toggleVisible`; click selects; background row last, marked, not draggable, with its own opacity + visibility.
+- List: top of list = top of stack; dnd-kit sortable (pattern as in `PuzzleImages.tsx`) dispatching `reorder`; eye toggles `toggleVisible`, Alt+click on an eye dispatches `solo` (tooltip "Alt+click: show only this"); click selects; background row last, marked, not draggable, with its own opacity + visibility.
 - Panel (selected layer): opacity slider 0–100 with number; `SegmentedControl` for blend (labels from Global Constraints); `NumberInput`s for X, Y, width %, height %, rotation, with a lock (default on) tying width/height %; buttons Flip horizontal, Crop / Reset crop, Reset transform, Use as background, Copy size, Paste size (disabled when nothing copied), Delete. Numeric edits dispatch inside a gesture so each field change is one undo step.
 - Crop mode (`cropMode` true): editor draws the layer unrotated with the uncropped image dimmed and the crop rect bright, edge/corner drags adjust it; Enter or the button applies (`setCrop`), Esc cancels. Implement crop-mode pointer handling in `OverlayEditor.tsx` as part of this task.
 
