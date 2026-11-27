@@ -34,6 +34,7 @@ const MESSAGES: Record<string, string> = {
   too_long: `The message is too long (max ${MAX_POST_NOTE} characters).`,
   bad_image: "The rendered image was not accepted (it must be a PNG or JPEG under 10 MB).",
   not_on_puzzle: "That image is no longer on this puzzle.",
+  bad_target: "Couldn't tell where to post this image. Close the editor and try again.",
 };
 
 /** A human message for whatever the post attempt threw or returned. */

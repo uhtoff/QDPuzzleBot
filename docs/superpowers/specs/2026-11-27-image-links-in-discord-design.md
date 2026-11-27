@@ -126,11 +126,12 @@ editor's "copy link" use if any), so the format is defined once per language wit
 
 **UI.** A **Post to Discord** button in the mark-up editor's toolbar (hidden when the hunt
 is archived — the editor is already read-only/unavailable there). It opens a small modal:
-- "Posting to #channel-name" (resolved for display from the context; the server decides
-  the real channel).
+- "Posting to the puzzle's channel" or "Posting to the hunt channel" (from the context;
+  the board payload carries no channel names, and the server decides the real channel —
+  for a mini puzzle, its thread under the parent puzzle's channel).
 - Optional message, multiline, max 1500 chars.
-- Post / Cancel. On success: notify "Posted to #channel-name", close the modal, leave the
-  editor open. On failure: show the server's error.
+- Post / Cancel. On success: notify "Posted to the puzzle's channel" / "Posted to the hunt
+  channel", close the modal, leave the editor open. On failure: show the server's error.
 
 **Context.** `MarkupModal`/`MarkupCanvas` gain a `postTarget` prop:
 `{ kind: "puzzle_image"; puzzleId } | { kind: "evidence"; evidenceId }`. `PuzzleImages`

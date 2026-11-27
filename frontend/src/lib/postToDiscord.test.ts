@@ -32,7 +32,7 @@ describe("postErrorMessage", () => {
   const err = (slug: string) => new ApiError("raw", slug, 400);
   it("maps each server code to its own message", () => {
     const codes = ["not_found_or_forbidden", "forbidden", "archived", "send_failed",
-      "command", "too_long", "bad_image", "not_on_puzzle"];
+      "command", "too_long", "bad_image", "not_on_puzzle", "bad_target"];
     const msgs = codes.map((c) => postErrorMessage(err(c)));
     expect(new Set(msgs).size).toBe(codes.length);
     expect(msgs.every((m) => m !== "raw")).toBe(true);
