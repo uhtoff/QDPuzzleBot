@@ -109,7 +109,7 @@ It is a single-person scratch pad, not a shared editor.
   can be promoted with "Use as background", which demotes the old background to a layer.
   *(Design call, 2026-11-27.)* Promotion keeps the layer's **crop and flip** and drops its
   scale, stretch and rotation: the new background is the cropped area at its natural
-  resolution, which becomes the output size. The demoted background and all other layers
+  resolution, which sets the output scale. The demoted background and all other layers
   are re-projected into the new background's pixels so they stay where they appear on
   screen. This is expected to be rare (mainly "I pasted the logo second"), so it does not
   need to be cleverer than that.
@@ -118,8 +118,8 @@ It is a single-person scratch pad, not a shared editor.
 
 - Fixed: it is the coordinate frame. It cannot be moved, scaled or rotated; it can be
   hidden and its opacity changed (useful to see a layer alone).
-- Its natural pixel size **is** the output size. Anything outside it is cropped on export
-  (user, 2026-11-27: the saved image is the background only).
+- It sets the output's **scale** (one output pixel = one background pixel) but not its
+  extent: the saved image **grows to fit** (user, 2026-11-27). See Output.
 - **Working frame** (user, 2026-11-27): the background is shown inside a blank margin of
   25% of its width/height on every side, drawn as a visibly different, lightly shaded area,
   so layers can be dragged off the background, parked, and brought back. "Fit" fits the
@@ -128,8 +128,9 @@ It is a single-person scratch pad, not a shared editor.
 - *(Design call, 2026-11-27.)* Browsers cap canvas size (Chrome ~16384 px a side; Safari
   far lower) and the server accepts images up to 300 Mpx. If a background exceeds 16384 px
   on either side or 100 Mpx in area, it is scaled down on load to fit those limits and the
-  tool says so ("Background reduced to W×H for editing"); the output is then that reduced
-  size. This is the one permitted downscale, and it is never silent. No tiled export.
+  tool says so ("Background reduced to W×H for editing"); output scale then follows the
+  reduced background. This is the one permitted downscale, and it is never silent. No
+  tiled export.
 
 ### Layers
 
@@ -216,7 +217,19 @@ within the session (the original image is kept; "Reset crop" restores it). Recta
 
 ### Output
 
-- **Copy** renders at the background's natural size and writes a PNG to the clipboard
+**Bounds — grow to fit (user, 2026-11-27).** The exported image is the smallest
+axis-aligned rectangle, in background pixels, containing the background and the rotated,
+cropped bounds of every **visible** layer, rounded out to whole pixels. If every layer sits
+inside the background, that is exactly the background's size. Area outside the background
+is transparent. Hidden layers do not count, so a layer parked far off to the side should be
+hidden to keep it out of the result; the tool should make this obvious by drawing the
+export bounds as a dashed outline at all times.
+
+If the grown bounds exceed the canvas limits above (16384 px a side or 100 Mpx), Copy /
+Save / Download refuse with a message naming the layer(s) furthest out, rather than
+shrinking the result.
+
+- **Copy** renders those bounds at background scale and writes a PNG to the clipboard
   (`navigator.clipboard.write` with a `ClipboardItem`). If the browser refuses, fall back
   to a download and say so.
 - **Save to puzzle** renders the same PNG, uploads it as `overlay.png` via
