@@ -22,6 +22,14 @@ export function stripItems(
   return [...ownItems, ...evItems];
 }
 
+export const IMAGE_GONE_NOTICE = "That image is no longer on the dashboard";
+
+/** An image-only link (sourceless evidence, a mini's evidence) is still good
+ *  while some evidence item in the hunt carries that image. */
+export function imageOnlyLinkLive(mediaId: number, evidence: EvidenceItem[]): boolean {
+  return evidence.some((e) => e.media_id === mediaId);
+}
+
 export const ARCHIVED_NOTICE = "This hunt is archived \u2014 the image can't be marked up";
 
 export function stripItemMediaId(item: StripItem): number | null {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EvidenceItem, PuzzleImage } from "../types";
-import { resolveDeepLink, stripItems } from "./stripItems";
+import { imageOnlyLinkLive, resolveDeepLink, stripItems } from "./stripItems";
 
 function own(id: number, mediaId: number, position: number): PuzzleImage {
   return { id, media_id: mediaId, media_url: `/m/${mediaId}`, source_region_id: null, position };
@@ -83,5 +83,19 @@ describe("resolveDeepLink", () => {
     expect(resolveDeepLink({ puzzleId: 99, mediaId: null }, puzzles, list)).toEqual({
       puzzleId: null, mediaId: null, notice: "That puzzle no longer exists",
     });
+  });
+});
+
+describe("imageOnlyLinkLive", () => {
+  const evidence = [ev(10, null, 201, "2026-01-01T00:00:00Z"), ev(11, 7, 202, "2026-01-02T00:00:00Z"), ev(12, null, null, "2026-01-03T00:00:00Z")];
+
+  it("is live while any evidence item carries the image", () => {
+    expect(imageOnlyLinkLive(201, evidence)).toBe(true);
+    expect(imageOnlyLinkLive(202, evidence)).toBe(true);
+  });
+
+  it("is dead once no evidence item carries it (the evidence was deleted)", () => {
+    expect(imageOnlyLinkLive(999, evidence)).toBe(false);
+    expect(imageOnlyLinkLive(201, evidence.slice(1))).toBe(false);
   });
 });

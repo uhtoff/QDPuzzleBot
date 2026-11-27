@@ -19,7 +19,7 @@ import { useMediaQuery } from "@mantine/hooks";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { notifications } from "@mantine/notifications";
 import { IconArrowLeft, IconBrowserX } from "@tabler/icons-react";
-import { useHunt } from "../api";
+import { useEvidence, useHunt } from "../api";
 import { closeSolved, extensionSupports } from "../lib/extension";
 import { boardViews, type BoardView } from "../lib/boardViews";
 import { boardGroupRows, filterActive, type PuzzleFilter } from "../lib/puzzleFilter";
@@ -33,7 +33,7 @@ import { CreateControls } from "../components/CreateControls";
 import { PuzzleDrawer } from "../components/PuzzleDrawer";
 import { MarkupModal } from "../components/MarkupModal";
 import { parseBoardLink } from "../lib/deepLink";
-import { ARCHIVED_NOTICE, resolveDeepLink } from "../lib/stripItems";
+import { ARCHIVED_NOTICE, IMAGE_GONE_NOTICE, imageOnlyLinkLive, resolveDeepLink } from "../lib/stripItems";
 import { ChatViewer } from "../components/ChatViewer";
 import { SolveModal } from "../components/PuzzleEditCells";
 import { EvidencePanel } from "../components/EvidencePanel";
@@ -200,6 +200,8 @@ const BoardByGroupView = memo(function BoardByGroupView({
 export default function HuntBoard() {
   const { uid } = useParams();
   const { data: rawData, isLoading, error } = useHunt(uid);
+  // Shared cache with the strip and Evidence view; used to check image-only deep links.
+  const { data: evidence, isPending: evidencePending } = useEvidence(uid ?? "");
   const { viewAs } = useViewAs();
   const qc = useQueryClient();
   const live = useActivityFeed((u) => {
@@ -313,27 +315,29 @@ export default function HuntBoard() {
     if (!rawData || searchParams.size === 0) return;
     const link = parseBoardLink(searchParams.toString());
     const archived = rawData.hunt.archived;
-    let imageOnly: number | null = null;
-    if (link.puzzleId != null) {
-      const r = resolveDeepLink(link, allPuzzles, []);
+    const r = link.puzzleId != null ? resolveDeepLink(link, allPuzzles, []) : null;
+    const imageOnly = r == null ? link.mediaId : r.puzzleId == null ? r.mediaId : null;
+    // An image-only link is checked against the hunt's evidence: wait for it.
+    // If the evidence query failed, open the image anyway rather than block.
+    if (imageOnly != null && !archived && evidencePending) return;
+    if (r != null) {
       if (r.puzzleId == null) {
         // Unknown puzzle: say so, but still open the image on its own.
         notifications.show({ message: r.notice ?? "", color: "yellow" });
-        imageOnly = r.mediaId;
       } else {
         // The strip resolves the image itself (it owns the image lists).
         setNotesPuzzleId(r.puzzleId);
         setDeepMediaId(link.mediaId);
       }
-    } else {
-      imageOnly = link.mediaId;
     }
     if (imageOnly != null) {
       if (archived) notifications.show({ message: ARCHIVED_NOTICE, color: "yellow" });
-      else setBoardMediaId(imageOnly);
+      else if (evidence && !imageOnlyLinkLive(imageOnly, evidence)) {
+        notifications.show({ message: IMAGE_GONE_NOTICE, color: "yellow" });
+      } else setBoardMediaId(imageOnly);
     }
     setSearchParams({}, { replace: true });
-  }, [rawData, allPuzzles, searchParams, setSearchParams]);
+  }, [rawData, allPuzzles, searchParams, setSearchParams, evidence, evidencePending]);
 
   const openNotes = useCallback((p: Puzzle) => setNotesPuzzleId(p.id), []);
   const openChat = useCallback((p: Puzzle) => setChatPuzzleId(p.id), []);
