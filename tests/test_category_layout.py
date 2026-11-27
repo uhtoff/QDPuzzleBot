@@ -1475,3 +1475,76 @@ async def test_tidy_category_already_tidy_makes_no_call():
 
     assert await layout.tidy_category(guild, cat, _PUZZLES, _SOLVED) == 0
     guild._state.http.bulk_channel_update.assert_not_awaited()
+
+
+# ----------------------------------------------------------------- missing divider
+
+def _owner_lookups(monkeypatch, *, group_home=False, hunt_home=False, split=False):
+    import bot.store as store
+    store.TagGroupJsonDb.get_by_attr.return_value = MagicMock() if group_home else None
+    store.HuntJsonDb.get_by_attr.return_value = MagicMock() if hunt_home else None
+    store.TagGroupCategoryDb.get_by_category.return_value = MagicMock() if split else None
+
+
+def _creates_divider(monkeypatch, cat, reaches_cache=True):
+    """Patch get_or_create_channel to make the divider, landing it in the
+    category's cached channels as the gateway would (unless told not to)."""
+    async def make(**kw):
+        div = MagicMock(); div.name = kw["channel_name"]; div.id = 99
+        div.position = len(cat.text_channels)
+        if reaches_cache:
+            cat.text_channels.append(div)
+        return div, True
+    mock = AsyncMock(side_effect=make)
+    monkeypatch.setattr(layout, "get_or_create_channel", mock)
+    return mock
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner", ["group_home", "hunt_home"])
+async def test_add_missing_divider_adds_one_to_a_home_category(monkeypatch, owner):
+    cat = _tidy_cat([("my-group", 3), ("p", 21)])
+    _owner_lookups(monkeypatch, **{owner: True})
+    made = _creates_divider(monkeypatch, cat)
+
+    assert await layout.add_missing_divider(MagicMock(), cat) is True
+    kw = made.await_args.kwargs
+    assert (kw["category"], kw["channel_name"], kw["position"]) == (cat, SOLVE_DIVIDER, 500)
+
+
+@pytest.mark.asyncio
+async def test_add_missing_divider_leaves_a_category_that_has_one(monkeypatch):
+    cat = _tidy_cat([("p", 21), (SOLVE_DIVIDER, 99)])
+    _owner_lookups(monkeypatch, group_home=True)
+    made = _creates_divider(monkeypatch, cat)
+    assert await layout.add_missing_divider(MagicMock(), cat) is False
+    made.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_add_missing_divider_never_adds_to_a_split_category(monkeypatch):
+    """A split group's categories hold only unsolved or only solved puzzles:
+    no divider belongs there, even in the group's own (first) category."""
+    cat = _tidy_cat([("p", 21)])
+    _owner_lookups(monkeypatch, group_home=True, split=True)
+    made = _creates_divider(monkeypatch, cat)
+    assert await layout.add_missing_divider(MagicMock(), cat) is False
+    made.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_add_missing_divider_never_adds_to_a_hand_made_category(monkeypatch):
+    cat = _tidy_cat([("p", 21)])
+    _owner_lookups(monkeypatch)
+    made = _creates_divider(monkeypatch, cat)
+    assert await layout.add_missing_divider(MagicMock(), cat) is False
+    made.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_add_missing_divider_reports_false_if_it_never_reaches_the_cache(monkeypatch):
+    cat = _tidy_cat([("p", 21)])
+    _owner_lookups(monkeypatch, group_home=True)
+    _creates_divider(monkeypatch, cat, reaches_cache=False)
+    monkeypatch.setattr(layout, "_DIVIDER_WAIT_DELAY", 0)
+    assert await layout.add_missing_divider(MagicMock(), cat) is False

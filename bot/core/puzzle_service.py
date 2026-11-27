@@ -3610,8 +3610,9 @@ class PuzzleService:
         puzzle = None
         is_group = round_type == "Group"
         try:
-            # Every group clones the hunt's template category. A Group (no target)
-            # also gets a plain text channel for chat; the others get a divider.
+            # Every group clones the hunt's template category and gets the solved
+            # divider. A Group (no target) also gets a plain text channel for chat,
+            # made first so it sits above the divider.
             new_category = await ref_category.clone(name=new_category_name)
             await new_category.edit(position=ref_category.position + 1)
             if is_group:
@@ -3619,7 +3620,7 @@ class PuzzleService:
                     guild=guild, category=new_category,
                     channel_name=clean_channel_name(name), channel_type="text",
                 )
-            elif SOLVE_CATEGORY is False:
+            if SOLVE_CATEGORY is False:
                 await get_or_create_channel(
                     guild=guild, category=new_category, channel_name=SOLVE_DIVIDER,
                     channel_type="text", position=500,

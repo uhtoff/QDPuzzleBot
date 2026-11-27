@@ -1562,7 +1562,8 @@ class Puzzles(commands.Cog):
         Run in any channel of the category. Puts the general channel (or an
         unsolved meta target) first, then other non-puzzle channels, unsolved
         puzzles, the divider, and solved puzzles (a solved meta target heading
-        them); each block keeps its order. Organisers/admins only."""
+        them); each block keeps its order. Adds the divider first if a group's
+        or hunt's category is missing one. Organisers/admins only."""
         channel = ctx.channel
         if isinstance(channel, discord.Thread):
             channel = channel.parent
@@ -1593,16 +1594,20 @@ class Puzzles(commands.Cog):
         else:
             hunt = HuntJsonDb.get_by_attr(category_id=category.id)
             pinned = hunt.channel_id if hunt is not None else None
+        # A group or hunt home category without a divider (Groups were made
+        # without one before 2026-11-27) gets one first; split categories don't.
+        added = await category_layout.add_missing_divider(guild, category)
         moved = await category_layout.tidy_category(
             guild, category, puzzle_ids, solved_ids, pinned)
+        lead = "Added the solved divider. " if added else ""
         if moved is None:
             await ctx.send(":information_source: This category has no solved "
                            "divider (solved puzzles live in their own category), "
                            "so there's nothing to tidy.")
         elif moved == 0:
-            await ctx.send(":white_check_mark: Already in order.")
+            await ctx.send(f":white_check_mark: {lead}Already in order.")
         else:
-            await ctx.send(f":white_check_mark: Tidied: {moved} channel(s) moved.")
+            await ctx.send(f":white_check_mark: {lead}Tidied: {moved} channel(s) moved.")
 
 
     @commands.hybrid_command(description="Show all tags on the puzzle (organisers/admins)",)

@@ -597,6 +597,42 @@ _DIVIDER_WAIT_TRIES = 30
 _DIVIDER_WAIT_DELAY = 0.1
 
 
+def _wants_divider(category):
+    """True if *category* is a group's or hunt's own home category that isn't
+    split: those hold unsolved and solved puzzles together, so they belong
+    around a divider. A split member (any row in either join table, the
+    owner's first category included) and a hand-made category never do."""
+    from bot.store import HuntCategoryDb, HuntJsonDb, TagGroupCategoryDb, TagGroupJsonDb
+    if (TagGroupCategoryDb.get_by_category(category.id) is not None
+            or HuntCategoryDb.get_by_category(category.id) is not None):
+        return False
+    return (TagGroupJsonDb.get_by_attr(category_id=category.id) is not None
+            or HuntJsonDb.get_by_attr(category_id=category.id) is not None)
+
+
+async def add_missing_divider(guild, category):
+    """Give an unsplit group or hunt home category its solved divider if it has
+    none (Groups were made without one before 2026-11-27). Created at the
+    bottom; returns True once it is in the guild cache, so a re-sort can place
+    solved puzzles below it, else False (nothing needed, or it never arrived).
+    Takes layout_lock."""
+    if any(ch.name == SOLVE_DIVIDER for ch in category.text_channels):
+        return False
+    if not _wants_divider(category):
+        return False
+    async with layout_lock:
+        await get_or_create_channel(
+            guild=guild, category=category, channel_name=SOLVE_DIVIDER,
+            channel_type="text", position=500)
+        for _ in range(_DIVIDER_WAIT_TRIES):
+            if any(ch.name == SOLVE_DIVIDER for ch in category.text_channels):
+                return True
+            await asyncio.sleep(_DIVIDER_WAIT_DELAY)
+    logger.warning("add_missing_divider: divider for category %s never reached the cache",
+                   category.id)
+    return False
+
+
 async def _maybe_unsplit(guild, owner_id, dao, _count):
     """Reverse split_group once the owner is fully folded: exactly one row per
     role (seq=0 each) and small enough that unsolved + solved + the divider

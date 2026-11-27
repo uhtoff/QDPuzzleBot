@@ -89,9 +89,11 @@ describe("boardReuseTarget", () => {
 });
 
 describe("handOverBoardLink", () => {
-  const fakeApi = (sendMessage) => {
+  const fakeApi = (sendMessage, currentUrl = async () => url) => {
     const calls = [];
     const api = {
+      // Not recorded in calls: a read, and the sequences below are about what changes.
+      currentUrl: (id) => currentUrl(id),
       sendMessage: (...a) => (calls.push(["sendMessage", ...a]), sendMessage()),
       update: async (...a) => void calls.push(["update", ...a]),
       focus: async (...a) => void calls.push(["focus", ...a]),
@@ -138,6 +140,36 @@ describe("handOverBoardLink", () => {
     const { api, calls } = fakeApi(async () => true);
     await handOverBoardLink({ targetId: 1, newTabId: 2, url: b("h1"), api });
     expect(calls[0]).toEqual(["sendMessage", 1, { type: "openBoardLink", search: "" }]);
+  });
+
+  it("leaves the new tab, and focus, alone when it has moved on during the handoff", async () => {
+    const { api, calls } = fakeApi(async () => true, async () => "https://elsewhere.example/");
+    expect(await handOverBoardLink({ targetId: 1, newTabId: 2, url, api })).toBe("handed");
+    expect(calls).toEqual([["sendMessage", 1, { type: "openBoardLink", search: "?puzzle=3&image=50" }]]);
+  });
+
+  it("leaves things alone after a reload fallback too, if the new tab moved on", async () => {
+    const { api, calls } = fakeApi(async () => false, async () => b("h1", "?puzzle=9"));
+    expect(await handOverBoardLink({ targetId: 1, newTabId: 2, url, api })).toBe("reloaded");
+    expect(calls.slice(1)).toEqual([["update", 1, { url }]]);
+  });
+
+  it("does nothing more when the new tab is already gone", async () => {
+    const { api, calls } = fakeApi(async () => true, async () => {
+      throw new Error("No tab with id: 2");
+    });
+    expect(await handOverBoardLink({ targetId: 1, newTabId: 2, url, api })).toBe("handed");
+    expect(calls.map((c) => c[0])).toEqual(["sendMessage"]);
+  });
+
+  it("checks the new tab where it is when the handoff ends, not when it began", async () => {
+    let now = url;
+    const { api, calls } = fakeApi(async () => {
+      now = "https://elsewhere.example/"; // navigated while the board was being asked
+      return true;
+    }, async () => now);
+    await handOverBoardLink({ targetId: 1, newTabId: 2, url, api });
+    expect(calls.map((c) => c[0])).toEqual(["sendMessage"]);
   });
 
   it("swallows focus and remove errors", async () => {
