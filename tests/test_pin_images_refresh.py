@@ -331,3 +331,35 @@ async def test_clue_without_an_attachment_does_not_refresh_the_pin():
     await Puzzles.clue.callback(cog, ctx, note="text only")
 
     cog.web_refresh_info.assert_not_awaited()
+
+
+# --- canvas delete ---------------------------------------------------------------------
+
+async def test_deleting_a_canvas_refreshes_pins_of_puzzles_that_lose_images(reg):
+    """The cascade drops region-sourced puzzle_images rows; the ids are read
+    BEFORE the delete and refreshed AFTER it."""
+    calls = []
+    pidb = MagicMock()
+    pidb.puzzle_ids_for_canvas.side_effect = lambda cid: calls.append(("ids", cid)) or [20, 21]
+    cdb = MagicMock()
+    cdb.delete.side_effect = lambda cid: calls.append(("delete", cid))
+    mdb = MagicMock()
+    mdb.get_by_id.return_value = None
+    with patch("bot.store.PuzzleImageJsonDb", pidb), patch("bot.store.CanvasJsonDb", cdb), \
+         patch("bot.store.MediaJsonDb", mdb):
+        resp = await reg.client.delete("/api/canvases/4")
+    assert resp.status_code == 200, await resp.get_data()
+    assert calls == [("ids", 4), ("delete", 4)]
+    assert sorted(_refreshed(reg.cog)) == [20, 21]
+
+
+async def test_deleting_a_canvas_with_no_region_images_refreshes_nothing(reg):
+    pidb = MagicMock()
+    pidb.puzzle_ids_for_canvas.return_value = []
+    mdb = MagicMock()
+    mdb.get_by_id.return_value = None
+    with patch("bot.store.PuzzleImageJsonDb", pidb), patch("bot.store.CanvasJsonDb", MagicMock()), \
+         patch("bot.store.MediaJsonDb", mdb):
+        resp = await reg.client.delete("/api/canvases/4")
+    assert resp.status_code == 200
+    reg.cog.web_refresh_info.assert_not_awaited()

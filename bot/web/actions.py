@@ -3427,14 +3427,18 @@ async def delete_canvas(canvas_id):
     import shutil
     from bot.core.image_tiler import tiles_relpath
     from bot.core.message_media import media_root
-    from bot.store import CanvasJsonDb, MediaJsonDb
+    from bot.store import CanvasJsonDb, MediaJsonDb, PuzzleImageJsonDb
     ctx, canvas_row, err = await _canvas_ctx(canvas_id, require_manage=True)
     if err:
         return err
     assert ctx is not None and canvas_row is not None
     media = MediaJsonDb.get_by_id(canvas_row.media_id)
+    # The cascade below drops region-sourced puzzle_images rows, so collect the
+    # affected puzzles first; their pins are refreshed once the delete commits.
+    pin_puzzle_ids = PuzzleImageJsonDb.puzzle_ids_for_canvas(canvas_id)
     # Regions and their evidence rows go by FK cascade from hunt_canvases.
     CanvasJsonDb.delete(canvas_id)
+    await refresh_pins_for_puzzles(ctx["hunt"]["id"], ctx["guild_snowflake"], pin_puzzle_ids)
     if media is not None:
         tiles = media_root() / tiles_relpath(media.hunt_id, media.id)
         # Best effort: a failure here leaks disk, which is far better than

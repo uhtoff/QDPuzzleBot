@@ -1791,6 +1791,14 @@ class MySQLPuzzleImageDb(_MySQLBaseDb):
             tuple(params),
         )
 
+    def puzzle_ids_for_canvas(self, canvas_id: int) -> list:
+        """Ids of puzzles holding a region-sourced image from this canvas."""
+        rows = self._fetch_all(
+            "SELECT DISTINCT pi.puzzle_id FROM puzzle_images pi"
+            " JOIN canvas_regions r ON r.id = pi.source_region_id"
+            " WHERE r.canvas_id = %s", (canvas_id,))
+        return [r["puzzle_id"] for r in rows]
+
     def delete_by_region(self, region_id: int) -> None:
         self._exec(
             "DELETE FROM puzzle_images WHERE source_region_id = %s", (region_id,))

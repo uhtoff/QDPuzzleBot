@@ -278,7 +278,6 @@ class TestClueOutsideHunt:
         ctx.message.attachments = []      # unset Mock attrs are truthy — must be a real []
         cog.service.log_clues = AsyncMock()
         cog.service.refresh_evidence_safe = AsyncMock()
-        cog.web_refresh_info = AsyncMock()  # attachment -> the pin is refreshed
 
         await Puzzles.clue.callback(cog, ctx, note="some note")
 
