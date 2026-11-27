@@ -1,4 +1,4 @@
-import { rewriteMentions, tokenise, embedLines, emojiUrl } from "./lib/discordText.js";
+import { rewriteMentions, tokenise, embedLines, emojiUrl, stripMarkers } from "./lib/discordText.js";
 import { isBlank, messageView, isBangCommand, errorText } from "./lib/format.js";
 import { canCompose, validate, draftAfterSend } from "./lib/composer.js";
 import { applyEvent, eventChannel, sameTarget, mergeHistory, targetChannel } from "./lib/panelState.js";
@@ -51,7 +51,17 @@ let currentPuzzle = null;
 let channelNames = {};
 let dashOrigin = null; // refreshed in loadMessages; used for attachment links
 
-// Mentions, shortcodes, bold, code and custom emoji as DOM nodes; never innerHTML.
+// An <a> opening *href* (already http(s)-checked) in a new tab, showing *text*.
+function newTabLink(href, text) {
+  const a = document.createElement("a");
+  a.href = href;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  a.textContent = text;
+  return a;
+}
+
+// Mentions, shortcodes, bold, code, links and custom emoji as DOM nodes; never innerHTML.
 function appendInline(parent, raw) {
   const cleaned = rewriteMentions(raw, (id) => channelNames[id] || (id === currentPuzzle?.channel_id ? currentPuzzle.name : null), { keepCustomEmoji: true });
   for (const seg of tokenise(cleaned)) {
@@ -62,6 +72,8 @@ function appendInline(parent, raw) {
       img.alt = seg.text;
       img.title = seg.text;
       parent.append(img);
+    } else if (seg.href) {
+      parent.append(newTabLink(seg.href, seg.text));
     } else if (seg.bold || seg.code) {
       const span = document.createElement(seg.code ? "code" : "strong");
       span.textContent = seg.text;
@@ -108,7 +120,10 @@ function renderMessage(m) {
     for (const l of lines) {
       const d = document.createElement("div");
       d.className = "embed-" + l.kind;
-      appendInline(d, l.text);
+      // A linked title is the link's plain text: its own markup could hold
+      // another link, and links don't nest.
+      if (l.href) d.append(newTabLink(l.href, stripMarkers(l.text)));
+      else appendInline(d, l.text);
       box.append(d);
     }
     body.append(box);
