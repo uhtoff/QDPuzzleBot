@@ -22,24 +22,32 @@ describe("boardReuseTarget", () => {
     expect(decide(tabs[1], tabs)).toBeNull();
   });
 
-  it("ignores a tab opened from a dashboard tab", () => {
+  it("ignores a background tab opened from a dashboard tab (middle-click, Ctrl+click)", () => {
     const fromDash = [
       { id: 1, url: b("h1"), windowId: 9 },
-      { id: 2, url: b("h1", "?image=5"), windowId: 9, openerTabId: 1 },
+      { id: 2, url: b("h1", "?image=5"), windowId: 9, openerTabId: 1, active: false },
     ];
     expect(decide(fromDash[1], fromDash)).toBeNull();
     const fromDashOtherPage = [
       { id: 1, url: b("h1"), windowId: 9 },
       { id: 3, url: "https://dash.test/", windowId: 9 },
-      { id: 2, url: b("h1"), windowId: 9, openerTabId: 3 },
+      { id: 2, url: b("h1"), windowId: 9, openerTabId: 3, active: false },
     ];
     expect(decide(fromDashOtherPage[2], fromDashOtherPage)).toBeNull();
     const fromDiscord = [
       { id: 1, url: b("h1"), windowId: 9 },
       { id: 3, url: "https://discord.com/channels/1/2", windowId: 9 },
-      { id: 2, url: b("h1"), windowId: 9, openerTabId: 3 },
+      { id: 2, url: b("h1"), windowId: 9, openerTabId: 3, active: false },
     ];
     expect(decide(fromDiscord[2], fromDiscord)).toBe(1);
+  });
+
+  it("folds a foreground tab whose opener is a dashboard tab (Chrome names the active tab for a link from another app)", () => {
+    const tabs = [
+      { id: 1, url: b("h1"), windowId: 9 },
+      { id: 2, url: b("h1", "?image=5"), windowId: 9, openerTabId: 1, active: true },
+    ];
+    expect(decide(tabs[1], tabs)).toBe(1);
   });
 
   it("ignores the only tab in its window", () => {

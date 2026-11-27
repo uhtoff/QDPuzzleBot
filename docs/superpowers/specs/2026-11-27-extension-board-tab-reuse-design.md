@@ -30,7 +30,10 @@ extension installed, a link to a hunt whose board is already open should land in
 
 - Killing a board tab the user opened on purpose. A tab opened **from a dashboard tab**
   (middle-click, "open in new tab" on the board) is never folded in, so two side-by-side
-  views of one hunt still work (user, 2026-11-27).
+  views of one hunt still work (user, 2026-11-27). Detected as: opener is a dashboard tab
+  AND the tab opened in the background. Chrome names the active tab as the opener of a link
+  opened from another app (Discord desktop), so the opener alone cannot tell them apart; a
+  foreground Ctrl+Shift+click from the board is therefore folded (user, 2026-11-27).
 - Losing the link (closing the new tab before the existing one has it).
 - A window left empty: a new tab that is its window's only tab is left alone (as the
   sheet reuse already does).
@@ -54,7 +57,8 @@ Hand-over: **no reload** (user, 2026-11-27), with reload as the fallback.
 **Extension (1.2.2):**
 - On a tab's URL becoming a hunt board for hunt `H` (new arrival only, not a reload or a
   change of query on the same tab), look for another tab showing `H`'s board. Skip when
-  the new tab's `openerTabId` is a dashboard tab, or it is its window's only tab.
+  the new tab opened in the background from a dashboard tab (`openerTabId`), or it is its
+  window's only tab.
 - Target choice when several boards of `H` are open: one in the new tab's window first,
   else the most recently used (`lastAccessed`). *(Builder's call.)*
 - Hand over: `chrome.tabs.sendMessage(target, {type: "openBoardLink", search})` to the

@@ -9,12 +9,14 @@ const onOrigin = (url, origin) => {
 };
 
 // Which open tab a new hunt-board tab should be folded into, or null to leave it alone.
-// The caller passes only a new tab's first page (see createArrivals). A tab opened from a
-// dashboard tab (a deliberate second view) and a tab alone in its window are never folded.
+// The caller passes only a new tab's first page (see createArrivals). A tab opened in the
+// background from a dashboard tab (middle-click, Ctrl+click: a deliberate second view) and a
+// tab alone in its window are never folded. A foreground tab is folded whatever its opener:
+// Chrome names the active tab as the opener of a link opened from another app (Discord desktop).
 export function boardReuseTarget({ newTab, tabs, origin }) {
   const uid = parseHuntBoardUrl(newTab.url, origin);
   if (!uid) return null;
-  if (newTab.openerTabId !== undefined) {
+  if (newTab.active !== true && newTab.openerTabId !== undefined) {
     const opener = tabs.find((t) => t.id === newTab.openerTabId);
     if (opener && onOrigin(opener.url, origin)) return null;
   }
