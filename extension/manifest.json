@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Puzzle Chat",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Chat with your team's Discord puzzle channel from the Google Sheet.",
   "icons": {
     "16": "icons/icon16.png",
