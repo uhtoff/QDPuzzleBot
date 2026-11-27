@@ -34,3 +34,26 @@ def normalize_external_url(url: str) -> str:
     if not url or re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", url):
         return url
     return f"https://{url}"
+
+
+def image_link(
+    base: str,
+    hunt_uid: str,
+    puzzle_id: int | None = None,
+    media_id: int | None = None,
+) -> str | None:
+    """Dashboard deep link to a hunt board, optionally opening a puzzle/image.
+
+    Returns ``None`` when *base* (the guild's website URL) is empty.
+    """
+    if not base:
+        return None
+    url = f"{base.rstrip('/')}/hunts/{hunt_uid}"
+    params = []
+    if puzzle_id is not None:
+        params.append(f"puzzle={puzzle_id}")
+    if media_id is not None:
+        params.append(f"image={media_id}")
+    if params:
+        url += "?" + "&".join(params)
+    return url
