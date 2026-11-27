@@ -1259,6 +1259,14 @@ export function useCreateMark(mediaId: number) {
   });
 }
 
+/** Post a rendered snapshot to Discord. `form` comes from buildPostForm. */
+export function usePostImage(mediaId: number) {
+  return useMutation({
+    mutationFn: (form: FormData) =>
+      apiUpload<{ id: string }>(`/api/media/${mediaId}/post`, form),
+  });
+}
+
 export function useUpdateMark(mediaId: number) {
   const qc = useQueryClient();
   return useMutation({

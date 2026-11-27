@@ -1,16 +1,21 @@
 import { Modal } from "@mantine/core";
+import type { PostTarget } from "../types";
 import { MarkupCanvas } from "./MarkupCanvas";
 
 type Props = {
   mediaId: number | null;
   alt: string;
   onClose: () => void;
+  /** When set, the editor offers "Post to Discord" for this target. */
+  postTarget?: PostTarget;
+  /** Where the post lands, for the dialog (see postDestination). */
+  postDestination?: string;
 };
 
 /** Full-screen wrapper so a marked-up image gets the whole window. Everything
  *  else lives in MarkupCanvas, which is reused by any surface that has a
  *  media id. */
-export function MarkupModal({ mediaId, alt, onClose }: Props) {
+export function MarkupModal({ mediaId, alt, onClose, postTarget, postDestination }: Props) {
   return (
     <Modal
       opened={mediaId != null}
@@ -26,7 +31,8 @@ export function MarkupModal({ mediaId, alt, onClose }: Props) {
       }}
     >
       {mediaId != null && (
-        <MarkupCanvas mediaId={mediaId} alt={alt} onSave={onClose} />
+        <MarkupCanvas mediaId={mediaId} alt={alt} onSave={onClose}
+                      postTarget={postTarget} postDestination={postDestination} />
       )}
     </Modal>
   );

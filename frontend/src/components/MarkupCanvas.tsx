@@ -3,14 +3,17 @@ import { Box, Button, ColorSwatch, Group, Slider, Stack, Textarea, Tooltip } fro
 import { useElementSize, useMergedRef } from "@mantine/hooks";
 import {
   IconArrowUpRight, IconDeviceFloppy, IconEraser, IconHighlight, IconLine,
-  IconPencil, IconTextSize, IconArrowBackUp,
+  IconPencil, IconTextSize, IconArrowBackUp, IconBrandDiscord,
 } from "@tabler/icons-react";
-import type { MarkKind, MarkStyle, MediaMark } from "../types";
-import { useCreateMark, useDeleteMark, useMarkup } from "../api";
+import type { MarkKind, MarkStyle, MediaMark, PostTarget } from "../types";
+import { useCreateMark, useDeleteMark, useMarkup, usePostImage } from "../api";
 import { MARKUP_MARGIN, TEXT_DEFAULT_SIZE, TEXT_LINE_HEIGHT, normPoint, polylineHitsCircle } from "../lib/canvasMath";
 import { cycleIndex } from "../lib/cycleIndex";
 import { useWheelZoom } from "../hooks/useZoomPan";
-import { notifyError } from "../util";
+import { drawMarkup, encodeSnapshot, snapshotBounds, snapshotScale } from "../lib/markupSnapshot";
+import { buildPostForm } from "../lib/postToDiscord";
+import { notifyError, notifySuccess } from "../util";
+import { PostToDiscordModal } from "./PostToDiscordModal";
 
 type Tool = "pen" | "line" | "arrow" | "highlighter" | "text" | "eraser" | null;
 
@@ -99,12 +102,20 @@ type Props = {
    *  this commits any half-typed text box and hands control back to the
    *  surface that opened the canvas (the modal closes). */
   onSave?: () => void;
+  /** When set, a "Post to Discord" button posts the marked-up image here. */
+  postTarget?: PostTarget;
+  /** Where that post lands, for the dialog ("the puzzle's channel"). */
+  postDestination?: string;
 };
 
-export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
+export function MarkupCanvas({ mediaId, alt, onSave, postTarget, postDestination }: Props) {
   const marks = useMarkup(mediaId);
   const createMark = useCreateMark(mediaId);
   const deleteMark = useDeleteMark(mediaId);
+  const postImage = usePostImage(mediaId);
+  const [postOpen, setPostOpen] = useState(false);
+  /** The HTML text layer, read at post time for its computed font-family. */
+  const textLayerRef = useRef<HTMLDivElement>(null);
 
   const [tool, setTool] = useState<Tool>("pen");
   const [colour, setColour] = useState(COLOURS[0]);
@@ -391,6 +402,48 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   /** Font size as a fraction of the image's height, from the size slider. */
   const textSize = textSizeFor(width_);
 
+  /** Opens the post dialog. Any half-typed text mark is committed first, so it
+   *  is in the query data (the mutation awaits the refetch) before rendering. */
+  const openPost = async () => {
+    await commitText();
+    setPostOpen(true);
+  };
+
+  /** Render the image and its marks exactly as the editor shows them, then
+   *  upload. Throws (the dialog shows it) on any failure. */
+  const post = async (content: string) => {
+    if (!postTarget) return;
+    const img = imgRef.current;
+    if (!img || !img.complete || !img.naturalWidth) {
+      throw new Error("The image hasn't finished loading yet.");
+    }
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const opts = {
+      rightEdge: 1 + MARKUP_MARGIN,
+      lineHeight: TEXT_LINE_HEIGHT,
+      fontFamily: textLayerRef.current
+        ? getComputedStyle(textLayerRef.current).fontFamily : "sans-serif",
+    };
+    const m = marks.data ?? [];
+    // Measure at NATURAL size, then size the canvas to the bounds * scale.
+    const mctx = document.createElement("canvas").getContext("2d");
+    if (!mctx) throw new Error("Canvas isn't available in this browser.");
+    const b = snapshotBounds(mctx, m, w, h, opts);
+    const s = snapshotScale(b.w, b.h);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(b.w * s);
+    canvas.height = Math.ceil(b.h * s);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas isn't available in this browser.");
+    ctx.scale(s, s);
+    ctx.translate(-b.x, -b.y);
+    drawMarkup(ctx, img, m, w, h, opts);
+    const enc = await encodeSnapshot(canvas);
+    if ("error" in enc) throw enc;
+    await postImage.mutateAsync(buildPostForm(enc.blob, enc.ext, content, postTarget));
+    notifySuccess(`Posted to ${postDestination ?? "Discord"}`);
+  };
+
   const undo = useCallback(() => {
     const last = mine.current.pop();
     if (last != null) deleteMark.mutate(last, { onError: (e) => notifyError(e) });
@@ -491,6 +544,14 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
         </Tooltip>
         <Slider w={90} min={WIDTH_MIN} max={WIDTH_MAX} step={0.001} value={width_}
                 onChange={setWidth} label={null} />
+        {postTarget && (
+          <Tooltip label="Post this image, with its marks, to Discord">
+            <Button size="xs" variant="light" leftSection={<IconBrandDiscord size={14} />}
+                    onClick={() => void openPost()}>
+              Post to Discord
+            </Button>
+          </Tooltip>
+        )}
         {onSave && (
           <Tooltip label="Marks are saved as you draw — this closes the image">
             <Button size="xs" leftSection={<IconDeviceFloppy size={14} />}
@@ -588,7 +649,8 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
             percentages of the image box), so a text mark wraps at the margin's
             right edge rather than the image's — one placed in the right margin
             would otherwise get a negative width and break after every word. */}
-        <div style={{ position: "absolute", pointerEvents: "none",
+        <div ref={textLayerRef}
+             style={{ position: "absolute", pointerEvents: "none",
                       left: `${-MARKUP_MARGIN * 100}%`, right: `${-MARKUP_MARGIN * 100}%`,
                       top: `${-MARKUP_MARGIN * 100}%`, bottom: `${-MARKUP_MARGIN * 100}%`,
                       lineHeight: TEXT_LINE_HEIGHT }}>
@@ -662,6 +724,15 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
           </Box>
         )}
       </Box>
+
+      {postTarget && (
+        <PostToDiscordModal
+          opened={postOpen}
+          destination={postDestination ?? "the channel"}
+          onClose={() => setPostOpen(false)}
+          onPost={post}
+        />
+      )}
     </Stack>
   );
 }

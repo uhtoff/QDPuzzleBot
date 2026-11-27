@@ -25,7 +25,8 @@ import {
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconPlus, IconTrash, IconVectorTriangle } from "@tabler/icons-react";
-import type { EvidenceItem, PuzzleImage } from "../types";
+import type { EvidenceItem, PostTarget, PuzzleImage } from "../types";
+import { postDestination } from "../lib/postToDiscord";
 import {
   useAttachPuzzleImage,
   useDeleteEvidence,
@@ -202,6 +203,18 @@ export function PuzzleImages({ puzzleId, puzzleName, uid, editable, openMediaId 
     [images, evidence, puzzleId],
   );
 
+  /** What the open editor posts as, derived from which strip item owns the
+   *  media — so a deep-linked open gets it too. */
+  let postTarget: PostTarget | undefined;
+  if (markupMediaId != null) {
+    if (images.some((i) => i.media_id === markupMediaId)) {
+      postTarget = { kind: "puzzle_image", puzzleId };
+    } else {
+      const ev = evidenceItems.find((e) => e.media_id === markupMediaId);
+      if (ev) postTarget = { kind: "evidence", evidenceId: ev.id };
+    }
+  }
+
   // Deep link: act once both lists have loaded, then tell the parent it is done.
   useEffect(() => {
     if (openMediaId == null || isLoading || evidenceLoading) return;
@@ -335,6 +348,8 @@ export function PuzzleImages({ puzzleId, puzzleName, uid, editable, openMediaId 
         mediaId={markupMediaId}
         alt={puzzleName}
         onClose={() => setMarkupMediaId(null)}
+        postTarget={postTarget}
+        postDestination={postTarget ? postDestination(postTarget, true) : undefined}
       />
 
       <ConfirmModal
