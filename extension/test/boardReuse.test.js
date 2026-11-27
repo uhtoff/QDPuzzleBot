@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { boardReuseTarget, handOverBoardLink } from "../src/lib/boardReuse.js";
+import { boardReuseTarget, createArrivals, handOverBoardLink } from "../src/lib/boardReuse.js";
 
 const origin = "https://dash.test";
 const b = (uid, q = "") => `https://dash.test/hunts/${uid}${q}`;
-const decide = (newTab, tabs, beforeUid) => boardReuseTarget({ newTab, beforeUid, tabs, origin });
+const decide = (newTab, tabs) => boardReuseTarget({ newTab, tabs, origin });
 
 describe("boardReuseTarget", () => {
   it("folds a new board tab into an open board of the same hunt", () => {
@@ -20,14 +20,6 @@ describe("boardReuseTarget", () => {
       { id: 2, url: b("h1"), windowId: 9 },
     ];
     expect(decide(tabs[1], tabs)).toBeNull();
-  });
-
-  it("ignores the same hunt as before", () => {
-    const tabs = [
-      { id: 1, url: b("h1"), windowId: 9 },
-      { id: 2, url: b("h1", "?puzzle=3"), windowId: 9 },
-    ];
-    expect(decide(tabs[1], tabs, "h1")).toBeNull();
   });
 
   it("ignores a tab opened from a dashboard tab", () => {
@@ -145,5 +137,62 @@ describe("handOverBoardLink", () => {
     api.focus = async () => { throw new Error("gone"); };
     api.remove = async () => { throw new Error("gone"); };
     expect(await handOverBoardLink({ targetId: 1, newTabId: 2, url, api })).toBe("handed");
+  });
+});
+
+describe("createArrivals (only a new tab's first page counts)", () => {
+  it("counts a new tab's first page", () => {
+    const a = createArrivals();
+    a.created(2, 0);
+    expect(a.arrived(2, b("h1", "?image=5"), 10)).toBe(true);
+  });
+
+  it("does not count a later URL change in that tab (reload, the SPA's own query change)", () => {
+    const a = createArrivals();
+    a.created(2, 0);
+    a.arrived(2, b("h1", "?image=5"), 10);
+    expect(a.arrived(2, b("h1"), 20)).toBe(false);
+  });
+
+  it("does not count a tab it never saw created (open before the update, or same-tab navigation)", () => {
+    const a = createArrivals();
+    expect(a.arrived(1, b("h1", "?puzzle=3"), 10)).toBe(false);
+  });
+
+  it("does not count a board reached after the tab's first page (hunt list → board)", () => {
+    const a = createArrivals();
+    a.created(2, 0);
+    a.arrived(2, "https://dash.test/hunts", 10); // the first page: not a board, so nothing is folded
+    expect(a.arrived(2, b("h1"), 20)).toBe(false);
+  });
+
+  it("waits past a blank or browser page for the first real one", () => {
+    const a = createArrivals();
+    a.created(2, 0);
+    expect(a.arrived(2, "about:blank", 5)).toBe(false);
+    expect(a.arrived(2, "chrome://newtab/", 6)).toBe(false);
+    expect(a.arrived(2, b("h1"), 10)).toBe(true);
+  });
+
+  it("forgets a new tab after the window", () => {
+    const a = createArrivals(30000);
+    a.created(2, 0);
+    expect(a.arrived(2, b("h1"), 30001)).toBe(false);
+  });
+
+  it("forgets a closed tab", () => {
+    const a = createArrivals();
+    a.created(2, 0);
+    a.removed(2);
+    expect(a.arrived(2, b("h1"), 10)).toBe(false);
+  });
+
+  it("ignores tabs the browser restores at startup", () => {
+    const a = createArrivals(30000);
+    a.quietUntil(15000);
+    a.created(2, 1000);
+    expect(a.arrived(2, b("h1"), 2000)).toBe(false);
+    a.created(3, 16000);
+    expect(a.arrived(3, b("h1"), 16500)).toBe(true);
   });
 });

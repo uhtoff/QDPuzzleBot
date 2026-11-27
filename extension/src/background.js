@@ -17,7 +17,7 @@ import { panelWindow } from "./lib/panelWindow.js";
 import { groupMove } from "./lib/groupMove.js";
 import { pickColour, findRoundGroup, findPuzzleGroup } from "./lib/groupColour.js";
 import { needsSocket } from "./lib/connection.js";
-import { boardReuseTarget, handOverBoardLink } from "./lib/boardReuse.js";
+import { boardReuseTarget, createArrivals, handOverBoardLink } from "./lib/boardReuse.js";
 import { createPanelHost } from "./lib/panelHost.js";
 import { apiGet, apiSend, getOrigin } from "./api.js";
 
@@ -766,12 +766,16 @@ async function focusTab(tab) {
 }
 
 // A board link for a hunt whose board is already open: hand it to that tab, close this one.
-async function maybeReuseBoard(tabId, beforeUid) {
+// New tabs not yet on a real page (in memory: a worker restart forgets them, so nothing is folded).
+const arrivals = createArrivals();
+chrome.runtime.onStartup.addListener(() => arrivals.quietUntil(Date.now() + 15000));
+
+async function maybeReuseBoard(tabId) {
   const origin = await getOrigin();
   const tabs = await chrome.tabs.query({}).catch(() => []);
   const newTab = tabs.find((t) => t.id === tabId);
   if (!newTab?.url) return;
-  const targetId = boardReuseTarget({ newTab, beforeUid, tabs, origin });
+  const targetId = boardReuseTarget({ newTab, tabs, origin });
   if (targetId === null || !(await chrome.tabs.get(targetId).catch(() => null))) return;
   await handOverBoardLink({
     targetId,
@@ -785,18 +789,17 @@ async function maybeReuseBoard(tabId, beforeUid) {
     },
   });
 }
-const queueBoardReuse = (tabId, beforeUid) => {
-  reuseChain = reuseChain.then(() => maybeReuseBoard(tabId, beforeUid)).catch(() => {});
+const queueBoardReuse = (tabId) => {
+  reuseChain = reuseChain.then(() => maybeReuseBoard(tabId)).catch(() => {});
 };
 
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  // Before any await, so the first page is claimed in event order.
+  if (info.url && arrivals.arrived(tabId, info.url, Date.now())) queueBoardReuse(tabId);
   if (!(info.url || info.status === "complete")) return;
   (async () => {
     await ready;
-    const entry = registry.get(tabId);
-    const before = entry?.spreadsheetId;
-    // The hunt this tab's board already showed: a reload or the SPA's own query change is not an arrival.
-    if (info.url) queueBoardReuse(tabId, entry?.hunt_chat ? entry.hunt_uid : undefined);
+    const before = registry.get(tabId)?.spreadsheetId;
     await refreshTab(tab);
     // Only a tab newly arriving at a spreadsheet is a duplicate candidate, not a reload or in-file navigation.
     if (isNewArrival(before, registry.get(tabId)?.spreadsheetId)) queueReuse(tabId);
@@ -807,6 +810,7 @@ chrome.tabs.onAttached.addListener(async (tabId, { newWindowId }) => {
   if (registry.setWindow(tabId, newWindowId)) persist();
 });
 chrome.tabs.onCreated.addListener(async (tab) => {
+  arrivals.created(tab.id, Date.now());
   await ready;
   if (registry.setWindow(tab.id, tab.windowId)) persist();
 });
@@ -820,6 +824,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
 });
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   lookupGen.drop(tabId); // synchronous: before any in-flight lookup can resolve
+  arrivals.removed(tabId);
   await ready;
   registry.delete(tabId);
   pageTabs.remove(tabId);

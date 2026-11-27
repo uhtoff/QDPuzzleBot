@@ -9,12 +9,11 @@ const onOrigin = (url, origin) => {
 };
 
 // Which open tab a new hunt-board tab should be folded into, or null to leave it alone.
-// Only a new arrival at a hunt board counts (not a reload or the SPA changing its own
-// query: `beforeUid` is the hunt the tab already showed). A tab opened from a dashboard
-// tab (a deliberate second view) and a tab alone in its window are never folded.
-export function boardReuseTarget({ newTab, beforeUid, tabs, origin }) {
+// The caller passes only a new tab's first page (see createArrivals). A tab opened from a
+// dashboard tab (a deliberate second view) and a tab alone in its window are never folded.
+export function boardReuseTarget({ newTab, tabs, origin }) {
   const uid = parseHuntBoardUrl(newTab.url, origin);
-  if (!uid || beforeUid === uid) return null;
+  if (!uid) return null;
   if (newTab.openerTabId !== undefined) {
     const opener = tabs.find((t) => t.id === newTab.openerTabId);
     if (opener && onOrigin(opener.url, origin)) return null;
@@ -50,4 +49,32 @@ export async function handOverBoardLink({ targetId, newTabId, url, api, timeoutM
   await Promise.resolve().then(() => api.focus(targetId)).catch(() => {});
   await Promise.resolve().then(() => api.remove(newTabId)).catch(() => {});
   return result;
+}
+
+// Tabs created in the last `windowMs` that have not yet reached a real page. Only such a
+// tab's first page is a new arrival a board link can be folded from: a reload, the SPA
+// changing its own query, a same-tab navigation, and tabs open before the extension
+// started are never arrivals, whatever the registry knows about them.
+export function createArrivals(windowMs = 30000) {
+  const fresh = new Map();
+  const isReal = (url) => /^https?:/i.test(url ?? "");
+  let quietEnd = 0;
+  return {
+    // Tabs created before `until` are not new (the browser restoring its session at startup).
+    quietUntil(until) {
+      quietEnd = until;
+    },
+    created(tabId, now) {
+      if (now >= quietEnd) fresh.set(tabId, now);
+    },
+    arrived(tabId, url, now) {
+      if (!fresh.has(tabId) || !isReal(url)) return false;
+      const at = fresh.get(tabId);
+      fresh.delete(tabId);
+      return now - at <= windowMs;
+    },
+    removed(tabId) {
+      fresh.delete(tabId);
+    },
+  };
 }
