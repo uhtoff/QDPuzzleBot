@@ -121,6 +121,35 @@ dashboard login, accepted only from origins listed in `extension_origins`.
 
 Restart the bot after editing. See `extension/README.md` for finding the ID and packaging.
 
+## Google account linking (optional)
+
+Solvers can optionally link their Discord-backed Puzzbot identity to a verified Google
+account from the dashboard profile menu. When linked, Puzzbot silently grants that email
+`writer` permission (`sendNotificationEmail=False`) on each active hunt's Drive folder
+(in `files` mode — inherited by all puzzle spreadsheets and `Solved/`) or spreadsheets
+(in `tabs` mode), so their Google Sheets cursor displays their real name instead of
+"Anonymous Animal". Unlinked solvers continue participating normally via the existing
+"anyone with the link" sharing.
+
+To enable it on an instance:
+
+1. Apply migration `066_google_account_links.sql` (`python migrate.py migrate`).
+2. In the Google Cloud Console (can be the same project as `google_secrets.json`), create
+   an **OAuth 2.0 Client ID** (type: Web application) with the authorized redirect URI:
+   `https://<site-hostname>/api/auth/google/callback`
+   (only the non-sensitive `openid` and `email` scopes are requested; no Drive scopes or
+   sensitive-scope app verification are needed).
+3. Add to the `web` block in `config.json`:
+   ```jsonc
+   "web": {
+     // ...existing dashboard keys...
+     "google_oauth_client_id": "<from Google Cloud>",
+     "google_oauth_client_secret": "<from Google Cloud>",
+     "google_oauth_redirect_uri": "https://<site-hostname>/api/auth/google/callback"
+   }
+   ```
+4. Restart the bot. Leave any of the three keys blank to keep the feature hidden.
+
 ## Hunt visibility
 
 - **Active** hunts are visible only to holders of the hunt's team `role_id`

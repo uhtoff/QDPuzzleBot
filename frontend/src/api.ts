@@ -179,6 +179,8 @@ export function friendlyError(d: { error?: string; retry_after?: number; detail?
       return "You aren't a member of this server.";
     case "missing_role_name":
       return "Enter a team role name.";
+    case "google_oauth_not_configured":
+      return "Google account linking is not configured on this server.";
     default:
       return d.error || `${status}`;
   }
@@ -208,11 +210,25 @@ export function loginUrl() {
   return `/api/auth/login?next=${encodeURIComponent(here)}`;
 }
 
+/** Where the "Link Google account" flow starts, returning to the current path. */
+export function googleLinkUrl() {
+  const here = window.location.pathname + window.location.search;
+  return `/api/auth/google/link?next=${encodeURIComponent(here)}`;
+}
+
 export async function logout() {
   await fetch("/api/auth/logout", {
     method: "POST",
     credentials: "include",
     headers: { "X-CSRF-Token": csrfToken() },
+  });
+}
+
+export function useUnlinkGoogle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiSend<{ ok: boolean; unlinked: boolean }>("/api/auth/google", "DELETE"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["me"] }),
   });
 }
 

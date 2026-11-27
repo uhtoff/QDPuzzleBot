@@ -1,9 +1,10 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 import {
   Alert,
   Anchor,
   AppShell,
   Avatar,
+  Badge,
   Burger,
   Group,
   Menu,
@@ -12,12 +13,21 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconCheck, IconEye, IconLogout, IconSettings, IconUsersGroup } from "@tabler/icons-react";
-import { Link, useNavigate } from "react-router-dom";
+import { notifications } from "@mantine/notifications";
+import {
+  IconBrandGoogle,
+  IconCheck,
+  IconEye,
+  IconLogout,
+  IconSettings,
+  IconUsersGroup,
+} from "@tabler/icons-react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { logout, useAdminGuilds } from "../api";
 import type { User } from "../types";
 import { useViewAs, type ViewAs } from "../context/ViewAsContext";
+import { GoogleAccountModal } from "./GoogleAccountModal";
 
 function avatarUrl(user: User) {
   return user.avatar_url ?? undefined;
@@ -25,10 +35,46 @@ function avatarUrl(user: User) {
 
 export function AppShellLayout({ user, children }: { user: User; children: ReactNode }) {
   const [opened, { toggle }] = useDisclosure();
+  const [googleModalOpen, { open: openGoogleModal, close: closeGoogleModal }] = useDisclosure();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
 
   const displayName = user.global_name || user.username || "Solver";
+
+  useEffect(() => {
+    const status = searchParams.get("google_link");
+    if (!status) return;
+    if (status === "linked") {
+      queryClient.invalidateQueries({ queryKey: ["me"] });
+      notifications.show({
+        color: "green",
+        title: "Google account linked",
+        message: "Active hunt sheets are being shared with your Google account for named cursors.",
+      });
+    } else if (status === "cancelled") {
+      notifications.show({
+        color: "gray",
+        title: "Google linking cancelled",
+        message: "No changes were made to your account.",
+      });
+    } else if (status === "error") {
+      notifications.show({
+        color: "red",
+        title: "Couldn't link Google account",
+        message: "Please try again — make sure your Google account has a verified email.",
+      });
+    } else if (status === "auth_required") {
+      notifications.show({
+        color: "orange",
+        title: "Sign in required",
+        message: "Please sign in with Discord before linking your Google account.",
+      });
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("google_link");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, queryClient]);
 
   const { viewAs, setViewAs } = useViewAs();
   const { data: adminGuilds } = useAdminGuilds();
@@ -64,7 +110,7 @@ export function AppShellLayout({ user, children }: { user: User; children: React
               Privacy
             </Anchor>
           </Group>
-          <Menu shadow="md" width={180} position="bottom-end">
+          <Menu shadow="md" width={220} position="bottom-end">
             <Menu.Target>
               <UnstyledButton>
                 <Group gap="xs">
@@ -112,6 +158,24 @@ export function AppShellLayout({ user, children }: { user: User; children: React
                   <Menu.Divider />
                 </>
               )}
+              {user.google_linking_enabled && (
+                <>
+                  <Menu.Item
+                    leftSection={<IconBrandGoogle size={16} />}
+                    rightSection={
+                      user.google_account ? (
+                        <Badge size="xs" color="green" variant="light">
+                          Linked
+                        </Badge>
+                      ) : undefined
+                    }
+                    onClick={openGoogleModal}
+                  >
+                    {user.google_account ? "Google account" : "Link Google account"}
+                  </Menu.Item>
+                  <Menu.Divider />
+                </>
+              )}
               <Menu.Item leftSection={<IconLogout size={16} />} onClick={onLogout}>
                 Log out
               </Menu.Item>
@@ -134,6 +198,13 @@ export function AppShellLayout({ user, children }: { user: User; children: React
         )}
         {children}
       </AppShell.Main>
+      {user.google_linking_enabled && (
+        <GoogleAccountModal
+          opened={googleModalOpen}
+          onClose={closeGoogleModal}
+          account={user.google_account}
+        />
+      )}
     </AppShell>
   );
 }

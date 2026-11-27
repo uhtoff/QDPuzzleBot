@@ -203,6 +203,7 @@ def create_app(bot):
 
     from .typed_app import BotQuart
     from .auth import auth_bp
+    from .google_auth import google_auth_bp
     from .api import api_bp
     from .actions import actions_bp
 
@@ -218,6 +219,7 @@ def create_app(bot):
     app.bot = bot
 
     app.register_blueprint(auth_bp)
+    app.register_blueprint(google_auth_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(actions_bp)
     _register_spa(app)
