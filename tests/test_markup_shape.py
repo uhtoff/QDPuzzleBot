@@ -76,3 +76,20 @@ def test_a_bad_colour_is_rejected():
     than trusted."""
     with pytest.raises(MarkupRejected):
         parse_style({"colour": "red; onload=alert(1)", "width": 0.004})
+
+
+def test_coordinates_may_sit_in_the_margin_around_the_image():
+    _, shape, _ = parse_mark({"kind": "pen", "points": [[-0.25, 1.25], [1.25, -0.25]]})
+    assert json.loads(shape)["points"] == [[-0.25, 1.25], [1.25, -0.25]]
+
+
+def test_coordinates_beyond_the_margin_are_refused():
+    for bad in ([-0.26, 0.5], [0.5, 1.26]):
+        with pytest.raises(MarkupRejected):
+            parse_mark({"kind": "pen", "points": [[0.5, 0.5], bad]})
+
+
+def test_a_text_mark_may_sit_in_the_margin():
+    _, shape, _ = parse_mark(
+        {"kind": "text", "points": [[-0.2, 1.1]], "text": "x", "size": 0.05})
+    assert json.loads(shape)["points"] == [[-0.2, 1.1]]
