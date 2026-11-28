@@ -46,3 +46,23 @@ describe("SHEETS_ORIGINS", () => {
     expect(SHEETS_ORIGINS).toEqual(["https://docs.google.com/spreadsheets/*"]);
   });
 });
+
+describe("board drawer (?puzzle=)", () => {
+  const o = "https://dash.test";
+  it("reads the open drawer's puzzle id from a hunt board address", async () => {
+    const { parseBoardPuzzleId } = await import("../src/lib/origin.js");
+    expect(parseBoardPuzzleId(`${o}/hunts/abc?puzzle=42`, o)).toBe(42);
+    expect(parseBoardPuzzleId(`${o}/hunts/abc?image=3&puzzle=7`, o)).toBe(7);
+  });
+  it("is null with no drawer, a bad id, another page or another site", async () => {
+    const { parseBoardPuzzleId } = await import("../src/lib/origin.js");
+    for (const url of [`${o}/hunts/abc`, `${o}/hunts/abc?puzzle=x`, `${o}/hunts/abc?puzzle=-1`,
+      `${o}/hunts?puzzle=4`, `https://evil.test/hunts/abc?puzzle=4`, "not a url"]) {
+      expect(parseBoardPuzzleId(url, o)).toBeNull();
+    }
+  });
+  it("puzzleChatPath names the puzzle", async () => {
+    const { puzzleChatPath } = await import("../src/lib/origin.js");
+    expect(puzzleChatPath(42)).toBe("/api/puzzles/42/chat");
+  });
+});

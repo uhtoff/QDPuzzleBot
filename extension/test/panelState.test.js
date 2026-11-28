@@ -142,3 +142,15 @@ describe("message cap", () => {
     expect(out.at(-1).id).toBe(String(MAX_MESSAGES + 20));
   });
 });
+
+describe("drawerCacheValid", () => {
+  it("is the entry looked up for this board's drawer puzzle", async () => {
+    const { drawerCacheValid } = await import("../src/lib/panelState.js");
+    const entry = { id: 3, drawer: 5, hunt_uid: "h" };   // a mini (5) resolved to its minimeta (3)
+    expect(drawerCacheValid(entry, 5, "h")).toBe(true);
+    expect(drawerCacheValid(entry, 3, "h")).toBe(false);
+    expect(drawerCacheValid(entry, 5, "other")).toBe(false);
+    expect(drawerCacheValid({ id: 5, hunt_uid: "h" }, 5, "h")).toBe(false); // a sheet entry
+    expect(drawerCacheValid(undefined, 5, "h")).toBe(false);
+  });
+});

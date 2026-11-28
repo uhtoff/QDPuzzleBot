@@ -50,6 +50,19 @@ export function parseHuntBoardUrl(url, origin) {
   }
 }
 
+// The puzzle whose drawer is open on a hunt board (`?puzzle=<id>`, which the dashboard
+// keeps in the address while the drawer is open), else null.
+export function parseBoardPuzzleId(url, origin) {
+  if (!parseHuntBoardUrl(url, origin)) return null;
+  const raw = new URL(url).searchParams.get("puzzle");
+  return raw && /^\d+$/.test(raw) ? Number(raw) : null;
+}
+
+// A puzzle's chat by id (the drawer's puzzle), in the by-sheet lookup's shape.
+export function puzzleChatPath(id) {
+  return "/api/puzzles/" + encodeURIComponent(id) + "/chat";
+}
+
 // The hunt's general channel, in the by-sheet lookup's shape.
 export function huntChatPath(uid) {
   return "/api/hunts/" + encodeURIComponent(uid) + "/chat";

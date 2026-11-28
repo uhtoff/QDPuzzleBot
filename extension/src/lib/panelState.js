@@ -18,6 +18,12 @@ export function huntCacheValid(entry, uid) {
   return !!entry && entry.hunt_chat === true && !!uid && entry.hunt_uid === uid;
 }
 
+// Is `entry` the lookup for drawer puzzle `id` on hunt `uid`'s board? Keyed on the id
+// asked for (`drawer`), not the answer's id: a mini answers with its minimeta.
+export function drawerCacheValid(entry, id, uid) {
+  return !!entry && entry.drawer === id && !!uid && entry.hunt_uid === uid;
+}
+
 // Does this URL need a fresh lookup (vs the cached registry entry)? A sheet URL
 // whose spreadsheet/gid differs from the entry does; a non-sheet URL does not.
 export function needsLookup(entry, url) {

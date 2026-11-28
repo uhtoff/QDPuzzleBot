@@ -1,7 +1,7 @@
 import { parseSheetUrl } from "./lib/sheetUrl.js";
 import { createRegistry } from "./lib/registry.js";
-import { cacheValid, huntCacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
-import { bySheetPath, huntChatPath, huntUnreadPath, parseHuntBoardUrl, wsUrl, WS_TICKET_PATH, removesOrigin, SHEETS_ORIGINS } from "./lib/origin.js";
+import { cacheValid, drawerCacheValid, huntCacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
+import { bySheetPath, huntChatPath, huntUnreadPath, parseBoardPuzzleId, parseHuntBoardUrl, puzzleChatPath, wsUrl, WS_TICKET_PATH, removesOrigin, SHEETS_ORIGINS } from "./lib/origin.js";
 import { backoffDelay, reconnectVia, resolveAttempt } from "./lib/backoff.js";
 import { invalidateOnNavigate } from "./lib/tabRefresh.js";
 import { createLookupGen } from "./lib/lookupGen.js";
@@ -637,6 +637,27 @@ async function lookupHunt(tabId, uid, windowId) {
   return true;
 }
 
+// The puzzle whose drawer is open on hunt `uid`'s board. Anything but a clean answer for
+// that hunt (an older server without the lookup, a puzzle that's gone) falls back to the
+// hunt's general channel, as the board shows without a drawer.
+async function lookupDrawer(tabId, id, uid, windowId) {
+  const token = lookupGen.begin(tabId);
+  if (drawerCacheValid(registry.get(tabId), id, uid)) {
+    if (registry.setWindow(tabId, windowId)) persist();
+    return true;
+  }
+  const res = await apiGet(puzzleChatPath(id));
+  if (!lookupGen.isCurrent(tabId, token)) return false;
+  if (res.authRequired || res.error || !res.puzzle || res.puzzle.hunt_uid !== uid) {
+    return lookupHunt(tabId, uid, windowId);
+  }
+  failures.delete(tabId);
+  failedFor.delete(tabId);
+  registry.set(tabId, { ...res.puzzle, bridge_enabled: res.bridge_enabled, drawer: id, windowId });
+  persist();
+  return true;
+}
+
 // First channel mention in a message (content or embeds), to trigger a refetch on a miss.
 function wantedChannel(message) {
   const text = [message?.content, ...(message?.embeds ?? []).flatMap((e) => [e?.title, e?.description])].join(" ");
@@ -676,8 +697,13 @@ async function refreshTab(tab, only) {
   // is on the hunt site. A dashboard hunt board shows the hunt's general channel; any
   // other readable non-sheet URL is "not a puzzle".
   const pageSheet = !sheet && !tab.url && !tab.pendingUrl ? pageTabs.get(tabId) : null;
-  const huntUid = !sheet && !pageSheet ? parseHuntBoardUrl(tab.url ?? "", await getOrigin()) : null;
-  if (huntUid) {
+  const origin = await getOrigin();
+  const huntUid = !sheet && !pageSheet ? parseHuntBoardUrl(tab.url ?? "", origin) : null;
+  // A board with a puzzle's drawer open (?puzzle=) shows that puzzle's chat.
+  const drawerId = huntUid ? parseBoardPuzzleId(tab.url ?? "", origin) : null;
+  if (drawerId !== null) {
+    if (!(await lookupDrawer(tabId, drawerId, huntUid, tab.windowId))) return; // superseded
+  } else if (huntUid) {
     if (!(await lookupHunt(tabId, huntUid, tab.windowId))) return; // superseded
   } else if (!sheet && !pageSheet) {
     lookupGen.begin(tabId); // invalidate any in-flight lookup for the old URL
@@ -1021,7 +1047,8 @@ async function openPage(sheetUrl, puzzleUrl, senderTab) {
 // A window is never left empty.
 async function closeSolved() {
   // Files mode only; page tabs close through the page pass below.
-  const entries = registry.entries().filter(([, e]) => e.sheet_mode === "files" && !e.page);
+  // A board's drawer entry (`drawer`) is a dashboard tab, never a sheet to close.
+  const entries = registry.entries().filter(([, e]) => e.sheet_mode === "files" && !e.page && !e.drawer);
   const sheetLookups = entries.map(async ([tabId, entry]) => ({
     kind: "sheet",
     tabId,
