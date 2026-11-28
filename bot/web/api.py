@@ -154,6 +154,11 @@ async def hunt_detail(uid):
     # the hunt name); None if the bot can no longer see that role.
     roster = (role_panel.find_roster_role(bot_app().bot, hunt["roster_role_id"])
               if mt is not None and hunt.get("roster_role_id") else None)
+    # Where this team finished (None until it has) of how many: the board's
+    # "Complete · 3rd of 5" badge. Names stay in the team's congrats message.
+    from bot.core.multi_team import finish_place
+    place, team_count = (finish_place(MultiTeamDb.members(mt["multi_team_id"]), hunt["id"])
+                         if mt is not None else (None, 0))
     return jsonify({
         "hunt": {
             "uid": hunt["uid"],
@@ -166,7 +171,8 @@ async def hunt_detail(uid):
             # Set when the hunt is one team of a multi-team hunt on a hub.
             "multi_team": ({"name": mt["name"], "completed": mt["completed_time"] is not None,
                             "archived": mt["archived_time"] is not None,
-                            "team": roster.name if roster is not None else None}
+                            "team": roster.name if roster is not None else None,
+                            "place": place, "team_count": team_count}
                            if mt is not None else None),
             "role_name": gating_role_name,
             "guild_snowflake": str(guild_snowflake) if guild_snowflake else None,

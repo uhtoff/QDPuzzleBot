@@ -187,6 +187,59 @@ class CompleteOutcome:
     message: str
 
 
+def ordinal(n: int) -> str:
+    """1 -> '1st', 2 -> '2nd', 11 -> '11th', 23 -> '23rd'."""
+    if 10 <= n % 100 <= 20:
+        return f"{n}th"
+    return f"{n}{ {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th') }"
+
+
+def finish_order(members) -> list:
+    """The finished member hunt ids, first finisher first (by completion time,
+    then hunt id for a tie)."""
+    done = [m for m in members if m["completed_time"] is not None]
+    return [m["hunt_id"] for m in sorted(done, key=lambda m: (m["completed_time"], m["hunt_id"]))]
+
+
+def finish_place(members, hunt_id):
+    """(this hunt's finishing place or None if it hasn't finished, number of teams)."""
+    order = finish_order(members)
+    return (order.index(hunt_id) + 1 if hunt_id in order else None), len(members)
+
+
+def congrats_text(team: str, hunt_name: str, earlier: list, finishers_mention: str) -> str:
+    """The congratulations posted in a team's own general channel when it is
+    marked complete. *earlier* names the teams that finished before it, in order."""
+    if not earlier:
+        place = "the first team to do so!"
+    else:
+        names = [f"**{n}**" for n in earlier]
+        listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+        place = f"the {ordinal(len(earlier) + 1)} team to do so, after {listed}."
+    return (f"🎉 **Congratulations, {team}!** You've finished **{hunt_name}**, {place}\n"
+            f"The finishers' channel on the hub, {finishers_mention}, is now open to you.")
+
+
+async def _congratulate(bot, hunt, team, hub, mt_id, finishers):
+    """Best-effort: post congrats_text in *hunt*'s general channel on its team
+    server. A failure is logged; the team is complete either way."""
+    try:
+        channel = bot.get_channel(getattr(hunt, "channel_id", 0) or 0)
+        if channel is None:
+            return
+        members = MultiTeamDb.members(mt_id)
+        order = finish_order(members)
+        roles = {m["hunt_id"]: m["roster_role_id"] for m in members}
+        earlier = []
+        for hid in order[:order.index(hunt.id)] if hunt.id in order else []:
+            role = hub.get_role(int(roles[hid])) if roles.get(hid) else None
+            earlier.append(role.name if role is not None else "another team")
+        await channel.send(congrats_text(team, hunt.name, earlier, f"<#{finishers.id}>"),
+                           allowed_mentions=discord.AllowedMentions.none())
+    except Exception:
+        logger.exception("multi-team: could not congratulate hunt %s", getattr(hunt, "id", "?"))
+
+
 async def set_complete(bot, hunt, complete: bool) -> CompleteOutcome:
     """Mark *hunt*'s team finished (or not) in its multi-team hunt, then rebuild
     the hub channels so the finishers overwrite follows, and announce a finish."""
@@ -218,6 +271,10 @@ async def set_complete(bot, hunt, complete: bool) -> CompleteOutcome:
         return CompleteOutcome(True, f":white_check_mark: **{team}** marked not complete.")
     await finishers.send(f"🏁 **{team}** has finished!",
                          allowed_mentions=discord.AllowedMentions.none())
+    # Not for an archived hunt: archive-to-hub marks complete after re-homing the
+    # hunt, so its channel_id is then its archive channel on the hub.
+    if not hunt.archived:
+        await _congratulate(bot, hunt, team, role.guild, link["multi_team_id"], finishers)
     return CompleteOutcome(
         True, f":white_check_mark: **{team}** marked complete — "
               f"they can now see #{finishers.name}.")

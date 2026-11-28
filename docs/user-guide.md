@@ -693,7 +693,8 @@ The full [command reference](commands.md) lists every command; highlights:
   `!update_settings multi_team_category "<name>"`; empty for top level). Mark a team complete with `!hunt_complete` in its hunt channel, the
   **Finished the hunt** switch in the hunt's Admin settings, or the button on Server
   settings → **Team servers**; `!hunt_not_complete` undoes it. Marking complete archives
-  nothing. When the last team archives, both channels are condensed into threads on
+  nothing. It congratulates the team in its own general channel (with its finishing place
+  and who finished before it), and its hunt board shows **Complete · 3rd of 5**. When the last team archives, both channels are condensed into threads on
   `{YYYY-MM} {name} - all teams` and deleted; `!archive_multi_team <hunt name>` or
   **Archive now** on the Team servers page does it sooner, but only once every team has
   archived to the hub. If the last team's hunt was deleted rather than archived, the

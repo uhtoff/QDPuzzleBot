@@ -268,7 +268,15 @@ def _mt_link(completed, archived=None):
             "archived_time": datetime.datetime(2026, 10, 2) if archived else None}
 
 
-async def _detail_payload(link, roster_role=SimpleNamespace(name="Team Rocket")):
+def _members(completed):
+    """This hunt (10) and two others; one other finished before it, one hasn't."""
+    t = datetime.datetime
+    return [{"hunt_id": 10, "completed_time": t(2026, 10, 1) if completed else None},
+            {"hunt_id": 11, "completed_time": t(2026, 9, 30)},
+            {"hunt_id": 12, "completed_time": None}]
+
+
+async def _detail_payload(link, roster_role=SimpleNamespace(name="Team Rocket"), members=()):
     app = make_web_app("api", cog=MagicMock())
     bot_app = MagicMock()
     bot_app.return_value.bot.get_guild.return_value = None
@@ -286,7 +294,8 @@ async def _detail_payload(link, roster_role=SimpleNamespace(name="Team Rocket"))
         patch("bot.web.api.data.build_board", MagicMock(return_value=[])),
         patch("bot.web.api.user_can_manage", AsyncMock(return_value=False)),
         patch("bot.web.api.bot_app", bot_app),
-        patch("bot.web.api.MultiTeamDb", MagicMock(for_hunt=MagicMock(return_value=link))),
+        patch("bot.web.api.MultiTeamDb", MagicMock(for_hunt=MagicMock(return_value=link),
+                                                    members=MagicMock(return_value=list(members)))),
         patch("bot.web.api.role_panel.find_roster_role", MagicMock(return_value=roster_role)),
     ]
     start_patches(patches)
@@ -300,16 +309,19 @@ async def _detail_payload(link, roster_role=SimpleNamespace(name="Team Rocket"))
 @pytest.mark.asyncio
 @pytest.mark.parametrize("completed,archived", [(True, False), (False, False), (True, True)])
 async def test_hunt_payload_carries_multi_team(completed, archived):
-    hunt = await _detail_payload(_mt_link(completed, archived=archived))
+    hunt = await _detail_payload(_mt_link(completed, archived=archived), members=_members(completed))
+    # A finished team also gets its place: 2nd of 3 (hunt 11 finished first).
     assert hunt["multi_team"] == {"name": "Mystery 2027", "completed": completed,
-                                  "archived": archived, "team": "Team Rocket"}
+                                  "archived": archived, "team": "Team Rocket",
+                                  "place": 2 if completed else None, "team_count": 3}
 
 
 @pytest.mark.asyncio
 async def test_hunt_payload_team_is_null_when_the_hub_role_is_gone():
-    hunt = await _detail_payload(_mt_link(False), roster_role=None)
+    hunt = await _detail_payload(_mt_link(False), roster_role=None, members=_members(False))
     assert hunt["multi_team"] == {"name": "Mystery 2027", "completed": False,
-                                  "archived": False, "team": None}
+                                  "archived": False, "team": None,
+                                  "place": None, "team_count": 3}
 
 
 @pytest.mark.asyncio

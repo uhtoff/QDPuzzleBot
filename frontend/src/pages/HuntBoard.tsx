@@ -33,6 +33,7 @@ import { CreateControls } from "../components/CreateControls";
 import { PuzzleDrawer } from "../components/PuzzleDrawer";
 import { MarkupModal } from "../components/MarkupModal";
 import { drawerSearch, isOwnAddress, parseBoardLink } from "../lib/deepLink";
+import { completeLabel } from "../lib/completeBadge";
 import { ARCHIVED_NOTICE, IMAGE_GONE_NOTICE, imageOnlyLinkLive, resolveDeepLink } from "../lib/stripItems";
 import { ChatViewer } from "../components/ChatViewer";
 import { SolveModal } from "../components/PuzzleEditCells";
@@ -431,6 +432,9 @@ export default function HuntBoard() {
               </Anchor>
             </Title>
             {data.hunt.archived && <Badge color="gray">Archived</Badge>}
+            {completeLabel(data.hunt.multi_team) && (
+              <Badge color="green" variant="light">{completeLabel(data.hunt.multi_team)}</Badge>
+            )}
             {data.hunt.voice_url && huntVoiceCount(data.hunt.uid, data.hunt.voice_count, voice) > 0 && (
               <Anchor href={data.hunt.voice_url} target="_blank" rel="noreferrer" aria-label="Join hunt voice">
                 <VoiceBadge count={huntVoiceCount(data.hunt.uid, data.hunt.voice_count, voice)} />

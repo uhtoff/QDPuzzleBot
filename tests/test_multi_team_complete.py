@@ -185,3 +185,88 @@ async def test_refuses_when_multi_team_hunt_archived(env):
 async def test_refuses_undo_on_archived_hunt(env):
     await _refused(env, _hunt(archived=True), False,
                    "**Team A Hunt** is archived, so it stays complete.")
+
+
+# --- Congratulations in the team server, and the finishing place ---
+
+def test_ordinal():
+    assert [multi_team.ordinal(n) for n in (1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 101, 111)] == [
+        "1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "101st", "111th"]
+
+
+def test_finish_order_is_by_completion_time_then_id():
+    members = [
+        {"hunt_id": 1, "completed_time": "2026-01-01 12:00:00"},
+        {"hunt_id": 2, "completed_time": None},
+        {"hunt_id": 3, "completed_time": "2026-01-01 10:00:00"},
+        {"hunt_id": 4, "completed_time": "2026-01-01 12:00:00"},
+    ]
+    assert multi_team.finish_order(members) == [3, 1, 4]
+
+
+def test_finish_place_of_a_team_and_of_one_not_finished():
+    members = [{"hunt_id": 1, "completed_time": "2026-01-01 12:00:00"},
+               {"hunt_id": 2, "completed_time": None},
+               {"hunt_id": 3, "completed_time": "2026-01-01 10:00:00"}]
+    assert multi_team.finish_place(members, 1) == (2, 3)
+    assert multi_team.finish_place(members, 2) == (None, 3)
+
+
+def test_congrats_text_first_and_later_finishers():
+    first = multi_team.congrats_text("Team Rocket", "CMU Hunt", [], "<#5>")
+    assert first == ("🎉 **Congratulations, Team Rocket!** You've finished **CMU Hunt**, "
+                     "the first team to do so!\nThe finishers' channel on the hub, <#5>, is now open to you.")
+    third = multi_team.congrats_text("Team Rocket", "CMU Hunt", ["Team Magma", "Team Aqua"], "<#5>")
+    assert third.startswith("🎉 **Congratulations, Team Rocket!** You've finished **CMU Hunt**, "
+                            "the 3rd team to do so, after **Team Magma** and **Team Aqua**.")
+    two = multi_team.congrats_text("T", "H", ["A"], "<#5>")
+    assert "the 2nd team to do so, after **A**." in two
+    many = multi_team.congrats_text("T", "H", ["A", "B", "C"], "<#5>")
+    assert "after **A**, **B** and **C**." in many
+
+
+async def test_complete_congratulates_the_team_in_its_general_channel(env):
+    _wire_send(env)
+    general = MagicMock(); general.send = AsyncMock()
+    env.bot.get_channel.side_effect = lambda cid: general if cid == 77 else None
+    env.db.members_list[1]["completed_time"] = "2025-12-31"   # Team B finished first
+    await multi_team.set_complete(env.bot, _hunt(channel_id=77), True)
+    general.send.assert_awaited_once()
+    text = general.send.await_args.args[0]
+    fin = env.hub.created[1][0]
+    assert text.startswith("🎉 **Congratulations, Team A!** You've finished **Team A Hunt**, "
+                           "the 2nd team to do so, after **Team B**.")
+    assert f"<#{fin.id}>" in text
+    assert general.send.await_args.kwargs["allowed_mentions"].everyone is False
+
+
+async def test_undo_and_repeat_send_no_congratulations(env):
+    _wire_send(env)
+    general = MagicMock(); general.send = AsyncMock()
+    env.bot.get_channel.return_value = general
+    await multi_team.set_complete(env.bot, _hunt(channel_id=77), True)
+    general.send.reset_mock()
+    await multi_team.set_complete(env.bot, _hunt(channel_id=77), True)    # repeat: no change
+    await multi_team.set_complete(env.bot, _hunt(channel_id=77), False)   # undo
+    general.send.assert_not_awaited()
+
+
+async def test_a_failed_congratulation_still_marks_complete(env):
+    import discord
+    _wire_send(env)
+    general = MagicMock()
+    general.send = AsyncMock(side_effect=discord.HTTPException(MagicMock(status=403), "nope"))
+    env.bot.get_channel.return_value = general
+    out = await multi_team.set_complete(env.bot, _hunt(channel_id=77), True)
+    assert out.changed is True and "marked complete" in out.message
+
+
+async def test_archiving_marks_complete_without_congratulating(env):
+    """Archive-to-hub marks the team complete after re-homing the hunt, whose
+    channel_id is then its archive channel on the hub: no congratulations there."""
+    _wire_send(env)
+    channel = MagicMock(); channel.send = AsyncMock()
+    env.bot.get_channel.return_value = channel
+    out = await multi_team.set_complete(env.bot, _hunt(channel_id=77, archived=True), True)
+    assert out.changed is True
+    channel.send.assert_not_awaited()

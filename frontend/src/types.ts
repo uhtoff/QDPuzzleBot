@@ -1,3 +1,4 @@
+import type { MultiTeamStatus } from "./lib/completeBadge";
 export interface Guild {
   id: number;
   guild_snowflake: string | null;
@@ -190,7 +191,7 @@ export interface HuntDetail {
     archived: boolean;
     is_gated: boolean;
     is_team_hunt: boolean;
-    multi_team: { name: string; completed: boolean; archived: boolean; team: string | null } | null;
+    multi_team: MultiTeamStatus | null;
     role_name: string | null;
     guild_snowflake: string | null;
     sheet_url: string | null;
