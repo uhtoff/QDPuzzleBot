@@ -358,6 +358,7 @@ const Column = memo(function Column({
   group,
   metas,
   pendingIds,
+  convertingTo,
   isOrganiser,
   onRetag,
   onOpenPicker,
@@ -378,6 +379,8 @@ const Column = memo(function Column({
   group: BoardGroup;
   metas: MetaOption[];
   pendingIds: Set<number>;
+  /** The type this group is being changed to, while that request runs. */
+  convertingTo?: string;
   isOrganiser: boolean;
   onRetag: (puzzleId: number, groupCode: string, mode: RetagMode, edge?: EdgeType) => void;
   onOpenPicker: (puzzleId: number, mode: "add" | "move") => void;
@@ -427,6 +430,7 @@ const Column = memo(function Column({
       color="gray"
       size="sm"
       aria-label="Group actions"
+      disabled={convertingTo !== undefined}
       onClick={!menuOpen ? () => setMenuOpen(true) : undefined}
     >
       <IconDotsVertical size={15} />
@@ -443,7 +447,7 @@ const Column = memo(function Column({
       style={{
         flex: "0 0 auto",
         outline: isOver ? "2px solid var(--mantine-color-blue-5)" : undefined,
-        opacity: isUnassigned && !isOver ? 0.85 : 1,
+        opacity: convertingTo !== undefined ? 0.6 : isUnassigned && !isOver ? 0.85 : 1,
         borderLeft: kind ? `4px solid ${kindColorVar(kind.color)}` : undefined,
         backgroundColor: group.target_solved ? "var(--mantine-color-green-light)" : undefined,
       }}
@@ -567,6 +571,12 @@ const Column = memo(function Column({
           )}
         </Group>
       </Group>
+      {convertingTo !== undefined && (
+        <Group gap={6} mb="xs" wrap="nowrap">
+          <Loader size="xs" color="grape" />
+          <Text size="xs" c="dimmed">Converting to {convertingTo}…</Text>
+        </Group>
+      )}
       <Stack gap={6}>
         {sortedPuzzles.map((p) => (
           <PuzzleCard
@@ -900,11 +910,22 @@ export const DragBoard = memo(function DragBoard({ detail, uid }: { detail: Hunt
   );
 
   const { mutate: changeTypeMutate } = changeType;
+  // Groups whose type change is running (id -> new type), so their column shows it
+  // and their menu is off until it finishes: the change can take a while (a new
+  // sheet and channel), and a second click used to start it again.
+  const [typeChanges, setTypeChanges] = useState<Record<number, string>>({});
   const runChangeType = useCallback(
     (group: BoardGroup, type: string) => {
+      const id = group.tag_group_id;
+      setTypeChanges((cur) => ({ ...cur, [id]: type }));
       changeTypeMutate(
-        { tagGroupId: group.tag_group_id, type },
+        { tagGroupId: id, type },
         {
+          onSettled: () =>
+            setTypeChanges((cur) => {
+              const { [id]: _done, ...rest } = cur;
+              return rest;
+            }),
           onSuccess: (data) => {
             showSheetWarning(data);
             notifications.show({ message: `"${group.name}" is now a ${type}.`, color: "green" });
@@ -1066,6 +1087,7 @@ export const DragBoard = memo(function DragBoard({ detail, uid }: { detail: Hunt
                 onConvertToRunaround={onConvertToRunaround}
                 onRenameGroup={onRenameGroup}
                 onChangeType={onChangeType}
+                convertingTo={typeChanges[group.tag_group_id]}
                 onConvertGroupToFeeder={onConvertGroupToFeeder}
                 onExtractCategory={setExtractTarget}
                 onFoldCategory={setFoldTarget}
