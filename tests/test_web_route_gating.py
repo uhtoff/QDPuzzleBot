@@ -161,6 +161,7 @@ UNGATED_REMAINDER = [
     ("GET", "/media/<int:media_id>"),
     ("GET", "/media/<int:media_id>/markup"),
     ("GET", "/media/<int:media_id>/tiles/<int:z>/<int:y>/<int:x>"),
+    ("GET", "/puzzles/<int:puzzle_id>/chat"),
     ("GET", "/puzzles/<int:puzzle_id>/images"),
     ("GET", "/puzzles/by-sheet"),
     ("GET", "/rollups/<int:tag_group_id>/answers"),

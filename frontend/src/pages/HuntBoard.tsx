@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   Accordion,
   Anchor,
@@ -32,7 +32,7 @@ import { DragBoard } from "../components/DragBoard";
 import { CreateControls } from "../components/CreateControls";
 import { PuzzleDrawer } from "../components/PuzzleDrawer";
 import { MarkupModal } from "../components/MarkupModal";
-import { parseBoardLink } from "../lib/deepLink";
+import { drawerSearch, isOwnAddress, parseBoardLink } from "../lib/deepLink";
 import { ARCHIVED_NOTICE, IMAGE_GONE_NOTICE, imageOnlyLinkLive, resolveDeepLink } from "../lib/stripItems";
 import { ChatViewer } from "../components/ChatViewer";
 import { SolveModal } from "../components/PuzzleEditCells";
@@ -309,10 +309,17 @@ export default function HuntBoard() {
     chatPuzzleId != null ? allPuzzles.find((p) => p.id === chatPuzzleId) ?? null : null,
   );
 
-  // Handle a deep link once, as soon as the board has loaded, then clear it so
-  // a refresh or later navigation does not reopen it.
+  // The address the board itself last wrote (see the drawer effect below). It is
+  // never a deep link: that's what stops a closing drawer's stale ?puzzle= from
+  // reopening it. This effect must stay ABOVE the drawer effect, so in the render
+  // that closes a drawer it still compares against the old address.
+  const boardAddress = useRef("");
+
+  // Handle a deep link once, as soon as the board has loaded; it leaves only the
+  // drawer's ?puzzle= in the address.
   useEffect(() => {
     if (!rawData || searchParams.size === 0) return;
+    if (isOwnAddress(searchParams.toString(), boardAddress.current)) return;
     const link = parseBoardLink(searchParams.toString());
     const archived = rawData.hunt.archived;
     const r = link.puzzleId != null ? resolveDeepLink(link, allPuzzles, []) : null;
@@ -337,8 +344,25 @@ export default function HuntBoard() {
         if (r == null) notifications.show({ message: IMAGE_GONE_NOTICE, color: "yellow" });
       } else setBoardMediaId(imageOnly);
     }
-    setSearchParams({}, { replace: true });
+    boardAddress.current = r?.puzzleId != null ? `puzzle=${r.puzzleId}` : "";
+    setSearchParams(new URLSearchParams(boardAddress.current), { replace: true });
   }, [rawData, allPuzzles, searchParams, setSearchParams, evidence, evidencePending]);
+
+  // The address follows the drawer: ?puzzle=<id> while one is open, bare when
+  // none is, so the chat extension can show that puzzle's chat. Replaced, not
+  // pushed (Back doesn't step through drawers). Only on a change of drawer, so
+  // a deep link arriving before the board loads isn't cleared before it's read.
+  const shownDrawer = useRef<number | null>(null);
+  useEffect(() => {
+    if (shownDrawer.current === notesPuzzleId) return;
+    shownDrawer.current = notesPuzzleId;
+    setSearchParams((cur) => {
+      const next = drawerSearch(cur.toString(), notesPuzzleId);
+      if (next === null) return cur;
+      boardAddress.current = next;
+      return new URLSearchParams(next);
+    }, { replace: true });
+  }, [notesPuzzleId, setSearchParams]);
 
   // A board link the extension folded in from a duplicate tab arrives as a message: apply
   // it as this tab's query, without reloading, and the deep-link effect above handles it.

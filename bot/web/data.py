@@ -344,8 +344,7 @@ async def find_puzzle_by_sheet(spreadsheet_id, gid):
     """
     if not spreadsheet_id:
         return None
-    cols = ("p.id, p.name, p.channel_id, p.solved, p.parent_puzzle_id, p.hunt_id, "
-            "p.google_sheet_id, p.google_page_id, p.on_solved_sheet")
+    cols = _CHAT_LOOKUP_COLS
     match = await fetch_one(
         f"SELECT {cols} FROM puzzles p WHERE p.google_sheet_id = %s "
         "ORDER BY p.parent_puzzle_id IS NOT NULL, p.id LIMIT 1",
@@ -368,11 +367,23 @@ async def find_puzzle_by_sheet(spreadsheet_id, gid):
             if where == spreadsheet_id:
                 match = cand
                 break
+    return await _with_parent_and_hunt(match)
+
+
+# The puzzle columns the extension's chat lookups need (by sheet, by id).
+_CHAT_LOOKUP_COLS = ("p.id, p.name, p.channel_id, p.solved, p.parent_puzzle_id, p.hunt_id, "
+                     "p.google_sheet_id, p.google_page_id, p.on_solved_sheet")
+
+
+async def _with_parent_and_hunt(match):
+    """``{"puzzle", "hunt"}`` for a matched puzzle row, a mini resolved to its
+    parent minimeta (its chat lives there); None if anything is missing."""
     if match is None:
         return None
     if match["parent_puzzle_id"] is not None:
         match = await fetch_one(
-            f"SELECT {cols} FROM puzzles p WHERE p.id = %s", (match["parent_puzzle_id"],))
+            f"SELECT {_CHAT_LOOKUP_COLS} FROM puzzles p WHERE p.id = %s",
+            (match["parent_puzzle_id"],))
         if match is None:
             return None
     hunt = await fetch_one(
@@ -383,6 +394,15 @@ async def find_puzzle_by_sheet(spreadsheet_id, gid):
     if hunt is None:
         return None
     return {"puzzle": match, "hunt": hunt}
+
+
+async def find_puzzle_by_id(puzzle_id):
+    """The puzzle open in a dashboard drawer, as ``find_puzzle_by_sheet`` returns
+    it (a mini resolves to its minimeta); None if unknown. Visibility is the
+    caller's job."""
+    match = await fetch_one(
+        f"SELECT {_CHAT_LOOKUP_COLS} FROM puzzles p WHERE p.id = %s", (puzzle_id,))
+    return await _with_parent_and_hunt(match)
 
 
 async def get_hunt_puzzles(hunt, guild_snowflake):

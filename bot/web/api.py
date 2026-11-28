@@ -210,7 +210,23 @@ async def puzzle_by_sheet():
     if not spreadsheet:
         return not_found
     gid = request.args.get("gid", type=int)  # non-integer -> None (absent)
-    found = await data.find_puzzle_by_sheet(spreadsheet, gid)
+    return await _puzzle_chat_reply(user, await data.find_puzzle_by_sheet(spreadsheet, gid))
+
+
+@api_bp.route("/puzzles/<int:puzzle_id>/chat")
+@login_required
+async def puzzle_chat(puzzle_id):
+    """The puzzle open in a dashboard drawer, in the by-sheet lookup's shape, so
+    the chat extension's panel can follow the drawer (the board's ?puzzle=)."""
+    user = current_user()
+    assert user is not None
+    return await _puzzle_chat_reply(user, await data.find_puzzle_by_id(puzzle_id))
+
+
+async def _puzzle_chat_reply(user, found):
+    """The extension's puzzle-chat reply for a lookup result, or the 404 shared
+    by unknown and hidden puzzles (don't reveal which)."""
+    not_found = (jsonify({"error": "not_found_or_forbidden"}), 404)
     if found is None:
         return not_found
     puzzle, hunt = found["puzzle"], found["hunt"]

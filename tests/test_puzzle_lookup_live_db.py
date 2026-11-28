@@ -40,7 +40,7 @@ def test_find_puzzle_by_sheet_against_the_real_schema():
         on_live = _puzzle(tabs, "on live", "500")
         on_solved = _puzzle(tabs, "on solved", "500", solved_sheet=1)
         meta = _puzzle(tabs, "minimeta", "600")
-        _puzzle(tabs, "mini", "601", parent=meta)
+        mini = _puzzle(tabs, "mini", "601", parent=meta)
         own_file = _puzzle(files, "own file", "0", sheet="T2OWNFILE")
         _puzzle(files, "own mini", "0", sheet="T2MINIFILE", parent=own_file)
 
@@ -58,6 +58,13 @@ def test_find_puzzle_by_sheet_against_the_real_schema():
         assert _id(_find("T2OWNFILE", None)) == own_file
         assert _id(_find("T2OWNFILE", 12345)) == own_file
         assert _id(_find("T2MINIFILE", None)) == own_file
+        # By id (the dashboard drawer): the puzzle itself, a mini -> its minimeta,
+        # with its hunt; an unknown id -> nothing.
+        by_id = lambda pid: asyncio.run(data.find_puzzle_by_id(pid))  # noqa: E731
+        assert _id(by_id(on_live)) == on_live
+        assert by_id(on_live)["hunt"]["id"] == tabs
+        assert _id(by_id(mini)) == meta
+        assert by_id(987654321) is None
         # The hunt row comes back with the match.
         assert _find("T2LIVE", 500)["hunt"]["id"] == tabs
     finally:

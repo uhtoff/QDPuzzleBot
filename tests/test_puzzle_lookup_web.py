@@ -87,3 +87,47 @@ async def test_lookup_requires_login():
     async with _client(logged_in=False) as c:
         resp = await c.get("/api/puzzles/by-sheet?spreadsheet=LIVE&gid=123")
         assert resp.status_code == 401
+
+
+# --- GET /api/puzzles/<id>/chat: the drawer's puzzle, for the extension ---
+
+@asynccontextmanager
+async def _by_id_client(*, found=(PUZZLE, HUNT), visible=True):
+    app = make_web_app("api")
+    lookup = AsyncMock(return_value=None if found is None else {"puzzle": found[0], "hunt": found[1]})
+    patches = [
+        patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
+        patch("bot.web.api.data.find_puzzle_by_id", lookup),
+        patch("bot.web.api.data.get_guilds_map",
+              AsyncMock(return_value={7: {"guild_snowflake": 777}})),
+        patch("bot.web.api.resolve_membership", AsyncMock(return_value=({777}, {}))),
+        patch("bot.web.api.hunt_visible", lambda *a: visible),
+        patch("bot.web.api.config.web_bridge_enabled", True),
+    ]
+    start_patches(patches)
+    try:
+        client = app.test_client()
+        client.lookup = lookup
+        yield client
+    finally:
+        stop_patches(patches)
+
+
+@pytest.mark.asyncio
+async def test_puzzle_chat_by_id_answers_like_the_sheet_lookup():
+    async with _client() as c:
+        by_sheet = await (await c.get("/api/puzzles/by-sheet?spreadsheet=LIVE&gid=123")).get_json()
+    async with _by_id_client() as c:
+        resp = await c.get("/api/puzzles/9/chat")
+        assert resp.status_code == 200
+        assert await resp.get_json() == by_sheet
+        c.lookup.assert_awaited_once_with(9)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kw", [{"visible": False}, {"found": None}])
+async def test_puzzle_chat_by_id_hidden_or_unknown_is_404(kw):
+    async with _by_id_client(**kw) as c:
+        resp = await c.get("/api/puzzles/9/chat")
+        assert resp.status_code == 404
+        assert await resp.get_json() == {"error": "not_found_or_forbidden"}
