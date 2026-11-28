@@ -164,3 +164,30 @@ def test_a_failing_image_lookup_never_stops_the_pin():
     embeds = _embeds_for({}, {"side_effect": RuntimeError("db down")})
     assert len(embeds) == 1
     assert embeds[0].description == "d"
+
+
+# --- captions label a puzzle's own pictures ---
+
+def test_pin_images_for_labels_own_images_by_caption_and_evidence_by_note():
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+
+    from bot.core.pin_images import pin_images_for
+    imgs = MagicMock(); imgs.get_by_puzzle.return_value = [
+        SimpleNamespace(media_id=1), SimpleNamespace(media_id=2)]
+    ev = MagicMock(); ev.get_image_evidence_for_puzzle.return_value = [
+        SimpleNamespace(media_id=3, note="clue note")]
+    media = MagicMock(); media.captions.return_value = {2: "**Grid** key"}
+    with patch("bot.store.PuzzleImageJsonDb", imgs), patch("bot.store.EvidenceJsonDb", ev), \
+         patch("bot.store.MediaJsonDb", media):
+        out = pin_images_for(9)
+    assert [(p.media_id, p.note, p.is_evidence) for p in out] == [
+        (1, None, False), (2, "Grid key", False), (3, "clue note", True)]
+    assert sorted(media.captions.call_args.args[0]) == [1, 2]
+
+
+def test_caption_label_is_plain_text():
+    from bot.core.pin_images import caption_label
+    assert caption_label("**Grid** __key__ ~~old~~ ||spoiler|| `code`") == "Grid key old spoiler code"
+    assert caption_label("  ") is None
+    assert caption_label(None) is None

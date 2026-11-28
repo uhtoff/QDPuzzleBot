@@ -495,6 +495,14 @@ you can change colour without letting go of the mouse. All of these are ignored 
 are typing a text mark, so a "1" mid-word will not swap the tool under you, and Tab
 indents as usual. Press **Escape** to close the image.
 
+**Captions.** A picture can carry a caption, written in the same Discord markdown as
+puzzle notes. Add or edit it with the pencil next to **Mark up** at the top of the
+full-screen view (Enter for a new line, **Ctrl/⌘+Enter** to save, **Escape** to cancel).
+The caption belongs to the picture, so it shows wherever that picture does: a thumbnail
+with a caption has a small speech-bubble badge (hover for the caption), the puzzle's
+pinned info message in Discord uses it to label the picture, and **Post to Discord**
+starts its message with it.
+
 Markup is **shared and live**: two people can annotate the same image at once and each
 sees the other's marks appear. It is also purely visual — a circle round an answer is not
 a clue, and never turns into one. Marks belong to the image you drew them on, so ink on a

@@ -340,6 +340,8 @@ export interface PuzzleImage {
   media_url: string;
   source_region_id: number | null;
   position: number;
+  /** The picture's caption (Discord markdown), or null. */
+  caption: string | null;
 }
 
 export interface HuntCanvas {

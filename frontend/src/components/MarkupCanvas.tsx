@@ -6,7 +6,7 @@ import {
   IconPencil, IconTextSize, IconArrowBackUp, IconBrandDiscord,
 } from "@tabler/icons-react";
 import type { MarkKind, MarkStyle, MediaMark, PostTarget } from "../types";
-import { useCreateMark, useDeleteMark, useMarkup, usePostImage } from "../api";
+import { useCreateMark, useDeleteMark, useMarkup, useMediaInfo, usePostImage } from "../api";
 import { MARKUP_MARGIN, TEXT_DEFAULT_SIZE, TEXT_LINE_HEIGHT, normPoint, polylineHitsCircle } from "../lib/canvasMath";
 import { cycleIndex } from "../lib/cycleIndex";
 import { useWheelZoom } from "../hooks/useZoomPan";
@@ -113,6 +113,7 @@ export function MarkupCanvas({ mediaId, alt, onSave, postTarget, postDestination
   const createMark = useCreateMark(mediaId);
   const deleteMark = useDeleteMark(mediaId);
   const postImage = usePostImage(mediaId);
+  const caption = useMediaInfo(mediaId).data?.caption ?? undefined;
   const [postOpen, setPostOpen] = useState(false);
   /** The HTML text layer, read at post time for its computed font-family. */
   const textLayerRef = useRef<HTMLDivElement>(null);
@@ -731,6 +732,7 @@ export function MarkupCanvas({ mediaId, alt, onSave, postTarget, postDestination
           destination={postDestination ?? "the channel"}
           onClose={() => setPostOpen(false)}
           onPost={post}
+          initialContent={caption}
         />
       )}
     </Stack>

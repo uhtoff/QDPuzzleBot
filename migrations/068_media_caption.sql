@@ -1,0 +1,18 @@
+-- 068_media_caption.sql
+-- A caption on a picture (Discord markdown), shown in the puzzle drawer, the mark-up
+-- view and the puzzle's pinned info message. It belongs to the picture (media), so the
+-- same picture shows the same caption wherever it appears. NULL = no caption.
+-- (066 is used by two unmerged branches, multiple-answers and pr-4; 067 is live.)
+--
+-- PRE-FLIGHT (run in EVERY environment before pushing; a nullable column with no
+-- default does not prove itself by applying):
+--   SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()
+--     AND TABLE_NAME = 'media' AND COLUMN_NAME = 'caption';
+--   -> 0
+--
+-- POST-CHECK:
+--   SHOW COLUMNS FROM media LIKE 'caption';     -> text, Null YES, Default NULL
+--   SELECT COUNT(*) FROM media WHERE caption IS NOT NULL;   -> 0
+--
+-- Plain ADD COLUMN (not MariaDB's IF NOT EXISTS, which CI's MySQL 8 rejects).
+ALTER TABLE `media` ADD COLUMN `caption` TEXT NULL DEFAULT NULL;

@@ -18,6 +18,8 @@ class MediaData:
     # failed: tiling gave up; callers fall back to the whole image.
     tile_status: str = "none"
     tile_levels: int = 0
+    # Discord markdown shown wherever the picture is (migration 068); None = none.
+    caption: Optional[str] = None
     created_at: Optional[datetime.datetime] = None
 
     @classmethod

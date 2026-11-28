@@ -3663,6 +3663,35 @@ async def create_mark(media_id):
     return jsonify(web_data.mark_to_json(mark)), 201
 
 
+CAPTION_LIMIT = 1000
+
+
+@actions_bp.route("/media/<int:media_id>", methods=["PATCH"])
+@login_required
+async def update_media_caption(media_id):
+    """Set or clear a picture's caption (Discord markdown). Same bar as marking it
+    up; every puzzle showing the picture gets its pinned Images list refreshed."""
+    from bot.store import MediaJsonDb
+    ctx, media, err = await _media_ctx(media_id)
+    if err:
+        return err
+    assert ctx is not None and media is not None
+    body = await request.get_json(silent=True) or {}
+    raw = body.get("caption")
+    if not isinstance(raw, str):
+        return jsonify({"error": "bad_value", "field": "caption"}), 400
+    caption = raw.strip() or None
+    if caption is not None and len(caption) > CAPTION_LIMIT:
+        return jsonify({"error": "caption_too_long", "limit": CAPTION_LIMIT}), 400
+    MediaJsonDb.update_caption(media_id, caption)
+    await refresh_pins_for_puzzles(ctx["hunt"]["id"], ctx["guild_snowflake"],
+                                   MediaJsonDb.puzzle_ids_using(media_id))
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+    await _audit("update_media_caption", hunt_uid=ctx["hunt"]["uid"],
+                 detail=f"media_id={media_id}")
+    return jsonify({"id": media_id, "caption": caption})
+
+
 @actions_bp.route("/media/<int:media_id>/markup/<int:mark_id>", methods=["PATCH"])
 @login_required
 async def update_mark(media_id, mark_id):
@@ -3722,8 +3751,11 @@ async def get_puzzle_images(puzzle_id):
     assert ctx is not None
 
     from bot.core import puzzle_images
+    from bot.store import MediaJsonDb
     images = puzzle_images.list_images(puzzle_id)
-    return jsonify([web_data.puzzle_image_to_json(i) for i in images])
+    captions = MediaJsonDb.captions(i.media_id for i in images) if images else {}
+    return jsonify([web_data.puzzle_image_to_json(i, captions.get(i.media_id))
+                    for i in images])
 
 
 @actions_bp.route("/puzzles/<int:puzzle_id>/images", methods=["POST"])

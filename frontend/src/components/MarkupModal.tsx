@@ -1,5 +1,6 @@
 import { Modal } from "@mantine/core";
 import type { PostTarget } from "../types";
+import { CaptionHeader } from "./CaptionHeader";
 import { MarkupCanvas } from "./MarkupCanvas";
 
 type Props = {
@@ -21,7 +22,7 @@ export function MarkupModal({ mediaId, alt, onClose, postTarget, postDestination
       opened={mediaId != null}
       onClose={onClose}
       fullScreen
-      title="Mark up"
+      title={mediaId != null ? <CaptionHeader mediaId={mediaId} /> : "Mark up"}
       // The canvas sizes itself to whatever the body gives it, so the body has
       // to be a full-height flex column rather than shrink-wrapping its child —
       // otherwise the frame inside has no definite height to fill.

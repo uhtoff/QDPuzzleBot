@@ -21,10 +21,12 @@ import {
   Group,
   Image,
   Text,
+  Tooltip,
   UnstyledButton,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconPlus, IconTrash, IconVectorTriangle } from "@tabler/icons-react";
+import { IconMessage, IconPlus, IconTrash, IconVectorTriangle } from "@tabler/icons-react";
+import { DiscordMarkdown } from "./DiscordMarkdown";
 import type { EvidenceItem, PostTarget, PuzzleImage } from "../types";
 import { postDestination } from "../lib/postToDiscord";
 import {
@@ -160,6 +162,19 @@ function SortableThumb({
         >
           <IconVectorTriangle size={10} />
         </Badge>
+      )}
+      {image.caption && (
+        <Tooltip label={<DiscordMarkdown text={image.caption} />} multiline w={260} withinPortal>
+          <Badge
+            size="xs"
+            variant="filled"
+            color="dark"
+            style={{ position: "absolute", bottom: 2, left: 2, padding: "0 4px" }}
+            aria-label="Has a caption"
+          >
+            <IconMessage size={10} />
+          </Badge>
+        </Tooltip>
       )}
       {editable && (
         <ActionIcon

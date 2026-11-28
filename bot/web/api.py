@@ -637,6 +637,17 @@ async def _visible_media(media_id, media=None):
     return media, None
 
 
+@api_bp.route("/media/<int:media_id>/info")
+@login_required
+async def media_info(media_id):
+    """A picture's details for the mark-up view: its caption (None if none)."""
+    media, err = await _visible_media(media_id)
+    if err:
+        return err
+    assert media is not None
+    return jsonify({"id": media.id, "caption": media.caption or None})
+
+
 @api_bp.route("/media/<int:media_id>")
 @login_required
 async def media_bytes(media_id):

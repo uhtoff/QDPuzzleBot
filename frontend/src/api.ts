@@ -1286,6 +1286,35 @@ export function useDeleteMark(mediaId: number) {
   });
 }
 
+// --- Picture captions ----------------------------------------------------
+
+export interface MediaInfo {
+  id: number;
+  caption: string | null;
+}
+
+export function useMediaInfo(mediaId: number | null) {
+  return useQuery({
+    queryKey: ["media-info", mediaId],
+    queryFn: () => apiGet<MediaInfo>(`/api/media/${mediaId}/info`),
+    enabled: mediaId != null,
+  });
+}
+
+/** Set (or, with "", clear) a picture's caption. The drawer's image lists carry
+ *  captions too, so those refetch. */
+export function useUpdateCaption(mediaId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (caption: string) =>
+      apiSend<MediaInfo>(`/api/media/${mediaId}`, "PATCH", { caption }),
+    onSuccess: (info) => {
+      qc.setQueryData(["media-info", mediaId], info);
+      qc.invalidateQueries({ queryKey: ["puzzle-images"] });
+    },
+  });
+}
+
 // --- Puzzle images -------------------------------------------------------
 
 export function usePuzzleImages(puzzleId: number | null) {

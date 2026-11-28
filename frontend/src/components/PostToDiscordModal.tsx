@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Button, Group, Modal, Stack, Text, Textarea } from "@mantine/core";
 import { MAX_POST_NOTE, postErrorMessage } from "../lib/postToDiscord";
 
@@ -9,12 +9,18 @@ type Props = {
   onClose: () => void;
   /** Renders, uploads and notifies; throws on failure. Resolves once posted. */
   onPost: (content: string) => Promise<void>;
+  /** Text the message starts with when the dialog opens empty (a picture's caption). */
+  initialContent?: string;
 };
 
 /** Asks for the optional message, then runs onPost. Failures stay in the
  *  dialog (with the draft intact) so the user can retry or cancel. */
-export function PostToDiscordModal({ opened, destination, onClose, onPost }: Props) {
+export function PostToDiscordModal({ opened, destination, onClose, onPost, initialContent }: Props) {
   const [content, setContent] = useState("");
+  // Start from the caption, but never overwrite what someone already typed.
+  useEffect(() => {
+    if (opened && initialContent) setContent((cur) => cur || initialContent.slice(0, MAX_POST_NOTE));
+  }, [opened, initialContent]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

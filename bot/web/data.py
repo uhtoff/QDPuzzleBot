@@ -231,11 +231,12 @@ def mark_to_json(mark):
     }
 
 
-def puzzle_image_to_json(image):
+def puzzle_image_to_json(image, caption=None):
     """One puzzle image as the dashboard sees it.
 
     media_url is built the same way get_evidence builds it: string
-    interpolation from the id, with no media row lookup on this path.
+    interpolation from the id, with no media row lookup on this path. The
+    picture's *caption* is looked up by the caller, batched (MediaDb.captions).
     """
     return {
         "id": image.id,
@@ -243,6 +244,7 @@ def puzzle_image_to_json(image):
         "media_url": f"/api/media/{image.media_id}",
         "source_region_id": image.source_region_id,
         "position": image.position,
+        "caption": caption,
     }
 
 

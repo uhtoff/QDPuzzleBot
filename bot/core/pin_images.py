@@ -19,6 +19,16 @@ class PinImage:
     is_evidence: bool
 
 
+_CAPTION_MARKERS = re.compile(r"\*\*|__|~~|\|\||`")
+
+
+def caption_label(caption: str | None) -> str | None:
+    """A picture's caption as a pin label: its paired markdown markers dropped so
+    the (escaped) label reads as text, or None when it has none."""
+    text = _CAPTION_MARKERS.sub("", caption or "").strip()
+    return text or None
+
+
 def _clean_note(note: str) -> str:
     one_line = " ".join(note.split())
     if len(one_line) > NOTE_LIMIT:
@@ -64,11 +74,14 @@ def images_field_value(images: list[PinImage], base: str, hunt_uid: str,
 
 
 def pin_images_for(puzzle_id: int) -> list[PinImage]:
-    """The puzzle's own images (by position) then its image evidence (by created_at)."""
-    from bot.store import EvidenceJsonDb, PuzzleImageJsonDb
+    """The puzzle's own images (by position, labelled by their captions) then its
+    image evidence (by created_at, labelled by its note)."""
+    from bot.store import EvidenceJsonDb, MediaJsonDb, PuzzleImageJsonDb
 
-    own = [PinImage(p.media_id, None, False)
-           for p in PuzzleImageJsonDb.get_by_puzzle(puzzle_id)]
+    images = PuzzleImageJsonDb.get_by_puzzle(puzzle_id)
+    # A puzzle's own picture is labelled by its caption; evidence keeps its note.
+    captions = MediaJsonDb.captions(p.media_id for p in images) if images else {}
+    own = [PinImage(p.media_id, caption_label(captions.get(p.media_id)), False) for p in images]
     evidence = [PinImage(e.media_id, e.note or None, True)
                 for e in EvidenceJsonDb.get_image_evidence_for_puzzle(puzzle_id)
                 if e.media_id is not None]

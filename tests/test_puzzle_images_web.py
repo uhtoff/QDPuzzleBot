@@ -34,7 +34,7 @@ def test_a_puzzle_image_serialises_its_media_url():
     out = web_data.puzzle_image_to_json(_image(id=1, media_id=7, position=2))
     assert out == {
         "id": 1, "media_id": 7, "media_url": "/api/media/7",
-        "source_region_id": None, "position": 2,
+        "source_region_id": None, "position": 2, "caption": None,
     }
 
 
@@ -80,12 +80,13 @@ def web():
 
 
 async def test_listing_a_puzzles_images(web):
+    web.mdb.captions.return_value = {7: "Grid key"}    # the picture's caption rides along
     resp = await web.client.get("/api/puzzles/20/images")
     assert resp.status_code == 200
     body = await resp.get_json()
     assert body == [{
         "id": 1, "media_id": 7, "media_url": "/api/media/7",
-        "source_region_id": None, "position": 0,
+        "source_region_id": None, "position": 0, "caption": "Grid key",
     }]
 
 

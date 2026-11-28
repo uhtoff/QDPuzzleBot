@@ -3,7 +3,7 @@ import type { EvidenceItem, PuzzleImage } from "../types";
 import { imageOnlyLinkLive, resolveDeepLink, stripItems } from "./stripItems";
 
 function own(id: number, mediaId: number, position: number): PuzzleImage {
-  return { id, media_id: mediaId, media_url: `/m/${mediaId}`, source_region_id: null, position };
+  return { id, media_id: mediaId, media_url: `/m/${mediaId}`, source_region_id: null, position, caption: null };
 }
 
 function ev(

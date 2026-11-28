@@ -1540,6 +1540,30 @@ class MySQLMediaDb(_MySQLBaseDb):
             (tile_status, tile_levels, media_id),
         )
 
+    def update_caption(self, media_id: int, caption) -> None:
+        """Set (or, with None, clear) one picture's caption."""
+        self._exec("UPDATE media SET caption = %s WHERE id = %s", (caption, media_id))
+
+    def captions(self, media_ids) -> dict:
+        """{media id: caption} for the given ids that have one."""
+        ids = sorted({int(i) for i in media_ids})
+        if not ids:
+            return {}
+        rows = self._fetch_all(
+            f"SELECT id, caption FROM media WHERE id IN ({','.join(['%s'] * len(ids))}) "
+            "AND caption IS NOT NULL AND caption <> ''", tuple(ids))
+        return {r["id"]: r["caption"] for r in rows}
+
+    def puzzle_ids_using(self, media_id: int) -> list:
+        """Every puzzle that shows this picture: as one of its own images, or as
+        image evidence logged from it. Their pinned info lists it."""
+        rows = self._fetch_all(
+            "SELECT puzzle_id AS pid FROM puzzle_images WHERE media_id = %s "
+            "UNION SELECT source_puzzle_id AS pid FROM evidence_items "
+            "WHERE media_id = %s AND source_puzzle_id IS NOT NULL",
+            (media_id, media_id))
+        return sorted(r["pid"] for r in rows)
+
     def get_by_id(self, media_id: int):
         """Return one MediaData by id, or None if missing."""
         row = self._fetch_one("SELECT * FROM media WHERE id = %s", (media_id,))
