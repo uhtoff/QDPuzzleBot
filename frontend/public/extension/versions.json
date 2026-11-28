@@ -1,6 +1,7 @@
 {
-  "latest": "1.2.1",
+  "latest": "1.2.2",
   "versions": [
+    { "version": "1.2.2", "adds": "board links reuse the hunt board you already have open instead of opening another tab" },
     { "version": "1.2.1", "adds": "clickable links in chat, a notice when a newer version is out, and fixes for a missed live message, unread timing and peeking after a restart" },
     { "version": "1.2.0", "adds": "the unread puzzles list, the hunt's general chat on the dashboard board, and separate notifications for solves and chat messages" },
     { "version": "1.1.0", "adds": "per-puzzle tab groups, chat on puzzle pages opened from the dashboard, and Firefox" }
