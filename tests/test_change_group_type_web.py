@@ -130,3 +130,78 @@ async def test_change_type_reports_a_sheet_failure_as_a_warning_not_a_500(web):
     body = await resp.get_json()
     assert body["ok"] is True
     assert "sheet_warning" in body
+
+
+@pytest.mark.asyncio
+async def test_change_type_rereads_the_group_under_the_lock_and_skips_a_done_change(web):
+    """A second click waits for the first, then must see the group the first left
+    behind -- not the copy it read before waiting -- and change nothing."""
+    stale = make_round(id=5, name="G"); stale.type = "Group"
+    fresh = make_round(id=5, name="G", target_puzzle_id=9); fresh.type = "Metapuzzle"
+    web.rdb.get_by_attr.side_effect = [stale, fresh]
+    resp = await web.client.post("/api/tag_groups/5/change-type", json={"type": "Metapuzzle"})
+    assert resp.status_code == 200
+    body = await resp.get_json()
+    assert body["ok"] is True and "already" in body["summary"]
+    web.cog.service.convert_tag_group_type.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_change_type_retries_a_half_done_promote(web):
+    """A promote that committed the type but died before making the meta is NOT
+    done: the type matches, but a Metapuzzle with no target must be finished."""
+    half = make_round(id=5, name="G"); half.type = "Metapuzzle"
+    web.rdb.get_by_attr.return_value = half
+    resp = await web.client.post("/api/tag_groups/5/change-type", json={"type": "Metapuzzle"})
+    assert resp.status_code == 200
+    web.cog.service.convert_tag_group_type.assert_awaited_once()
+    assert web.cog.service.convert_tag_group_type.await_args.args[2] is half
+
+
+@pytest.mark.asyncio
+async def test_two_promotes_of_an_empty_group_make_one_meta():
+    """An empty group has no members to lock, so the member lock alone let two
+    promotes run side by side and each make a meta. REAL locks here."""
+    import asyncio
+
+    state = make_round(id=7, name="G"); state.type = "Group"
+    calls = []
+
+    def read(**_kw):
+        r = make_round(id=7, name="G", target_puzzle_id=state.target_puzzle_id)
+        r.type = state.type
+        return r
+
+    async def slow_promote(_guild, _hunt, tg, new_type):
+        calls.append(new_type)
+        await asyncio.sleep(0.05)          # the slow part: sheets, channels
+        state.type, state.target_puzzle_id = new_type, 99
+        return (tg, "promoted")
+
+    cog = MagicMock()
+    cog.service.convert_tag_group_type = slow_promote
+    cog.service.refresh_unassigned_safe = AsyncMock()
+    app = make_web_app("actions", cog=cog)
+    rdb = MagicMock(); rdb.get_by_attr.side_effect = read
+    pdb = MagicMock(); pdb.get_all_from_tag_group.return_value = []
+    patches = [
+        patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
+        patch("bot.web.actions._visible_hunt_for_tag_group",
+              AsyncMock(return_value=(make_hunt_ctx(), None))),
+        patch("bot.web.actions.require_organiser", AsyncMock(return_value=None)),
+        patch("bot.web.actions._audit", AsyncMock()),
+        patch("bot.store.TagGroupJsonDb", rdb),
+        patch("bot.store.HuntJsonDb", MagicMock()),
+        patch("bot.store.PuzzleJsonDb", pdb),
+    ]
+    start_patches(patches)
+    try:
+        client = app.test_client()
+        a, b = await asyncio.wait_for(asyncio.gather(
+            client.post("/api/tag_groups/7/change-type", json={"type": "Metapuzzle"}),
+            client.post("/api/tag_groups/7/change-type", json={"type": "Metapuzzle"}),
+        ), timeout=5)
+    finally:
+        stop_patches(patches)
+    assert (a.status_code, b.status_code) == (200, 200)
+    assert calls == ["Metapuzzle"]

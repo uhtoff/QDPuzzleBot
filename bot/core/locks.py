@@ -53,6 +53,12 @@ _ROLLUP_LOCKS = defaultdict(asyncio.Lock)
 # Separate registry (hunt id is yet another int space) for the same reason as above.
 _HUNT_CREATE_LOCKS = defaultdict(asyncio.Lock)
 
+# One asyncio.Lock per TAG GROUP id, serializing a group's type change. The
+# member puzzle locks alone leave an EMPTY group unguarded (nothing to lock),
+# so two promotes could each make a meta. Separate registry: a group id is
+# another int space.
+_GROUP_LOCKS = defaultdict(asyncio.Lock)
+
 # One asyncio.Lock per HUNT id, serializing writes to that hunt's OWN working
 # sheets. Needed because with_puzzle_mutex no-ops when there is no puzzle in
 # context, so a hunt-level !add_sheet would otherwise race another on the Sheets
@@ -143,6 +149,18 @@ async def hunt_create_lock(hunt_id):
     -- because nothing acquires a puzzle lock while holding this one, so it adds
     no cycle. Keep it that way: acquiring a puzzle lock inside this would."""
     async with _HUNT_CREATE_LOCKS[hunt_id]:
+        yield
+
+
+@asynccontextmanager
+async def group_lock(tag_group_id):
+    """Serialize changes to one group's type (the dashboard's change-type).
+
+    Taken INSIDE the group's puzzles_lock and never the other way round, and
+    nothing else takes it, so it adds no lock-order cycle. Hold it around a
+    re-read of the group so a request that waited acts on what the previous
+    holder left, not on the copy it read before waiting."""
+    async with _GROUP_LOCKS[tag_group_id]:
         yield
 
 

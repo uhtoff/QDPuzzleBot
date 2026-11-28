@@ -40,7 +40,7 @@ from bot.core.sheet_location import (additional_sheet_location, hunt_sheet_locat
 from bot.store import GuildSettingsDb, HuntJsonDb, HuntInviteDb, HuntAccessLogDb, MultiTeamDb
 from bot.web import team_access
 from bot.core.locks import (puzzle_lock, puzzles_lock, convert_lock_ids,
-                            hunt_create_lock, hunt_sheet_lock)
+                            group_lock, hunt_create_lock, hunt_sheet_lock)
 from bot.core.errors import ChannelNameClash, SheetRefreshError
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_tiling import run_bounded_image_work, schedule_tiling
@@ -1918,6 +1918,15 @@ async def rename_tag_group(tag_group_id):
     return jsonify({"ok": True})
 
 
+def _group_type_done(tag_group, new_type):
+    """True if *tag_group* is already *new_type* in full: the type matches AND
+    its meta link agrees (a Group has none, every other type has one). A
+    promote that committed the type but died before making the meta is not
+    done, so it can be finished by asking again."""
+    has_target = bool(tag_group.target_puzzle_id)
+    return tag_group.type == new_type and has_target == (new_type != "Group")
+
+
 @actions_bp.route("/tag_groups/<int:tag_group_id>/change-type", methods=["POST"])
 @login_required
 async def change_group_type(tag_group_id):
@@ -1949,7 +1958,16 @@ async def change_group_type(tag_group_id):
         # puzzle-keyed convert routes and the delete/archive edges.
         # convert_tag_group_type -> convert_to_type -> bulk_re_edge mutates every
         # member and now takes no lock of its own, so this is the only acquisition.
-        async with puzzles_lock(convert_lock_ids(tag_group=tag_group)):
+        async with puzzles_lock(convert_lock_ids(tag_group=tag_group)), \
+                group_lock(tag_group_id):
+            # Re-read under the locks: a request that waited must act on what
+            # the previous one left (a second click on "Metapuzzle" would
+            # otherwise promote again from its stale copy and make a 2nd meta).
+            tag_group = TagGroupJsonDb.get_by_attr(id=tag_group_id)
+            if tag_group is None:
+                return jsonify({"error": "round_not_found"}), 404
+            if _group_type_done(tag_group, new_type):
+                return jsonify({"ok": True, "summary": f"no change (already {new_type})"})
             _group, summary = await cog.service.convert_tag_group_type(
                 guild, hunt_obj, tag_group, new_type)
     # SheetRefreshError subclasses RuntimeError, so it must be caught first —
